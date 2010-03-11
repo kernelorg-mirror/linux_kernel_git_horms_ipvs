@@ -120,8 +120,10 @@ struct sh_mobile_i2c_data {
 	struct i2c_adapter adap;
 
 	struct clk *clk;
+	u_int8_t icic;
 	u_int8_t iccl;
 	u_int8_t icch;
+	u_int8_t flags;
 	u_int32_t speed;
 
 	spinlock_t lock;
@@ -130,6 +132,8 @@ struct sh_mobile_i2c_data {
 	int pos;
 	int sr;
 };
+
+#define IIC_FLAG_HAS_ICIC67	(1 << 0)
 
 #define NORMAL_SPEED		100000 /* FAST_SPEED 400000 */
 
@@ -157,6 +161,8 @@ struct sh_mobile_i2c_data {
 #define ICSR_WAIT		0x02
 #define ICSR_DTE		0x01
 
+#define ICIC_ICCLB8		0x80
+#define ICIC_ICCHB8		0x40
 #define ICIC_ALE		0x08
 #define ICIC_TACKE		0x04
 #define ICIC_WAITE		0x02
@@ -164,6 +170,9 @@ struct sh_mobile_i2c_data {
 
 static void iic_wr(struct sh_mobile_i2c_data *pd, int offs, unsigned char data)
 {
+	if (offs == ICIC)
+		data |= pd->icic;
+
 	iowrite8(data, pd->reg + offs);
 }
 
@@ -209,6 +218,14 @@ static void activate_ch(struct sh_mobile_i2c_data *pd)
 	else
 		pd->iccl = (u_int8_t)(num/denom);
 
+	/* one more bit of ICCL in ICIC */
+	if (pd->flags & IIC_FLAG_HAS_ICIC67) {
+		if ((num/denom) > 0xff)
+			pd->icic |= ICIC_ICCLB8;
+		else
+			pd->icic &= ~ICIC_ICCLB8;
+	}
+
 	/* Calculate the value for icch. From the data sheet:
 	   icch = (p clock / transfer rate) * (H / (L + H)) */
 	num = i2c_clk * 4;
@@ -217,6 +234,14 @@ static void activate_ch(struct sh_mobile_i2c_data *pd)
 		pd->icch = (u_int8_t)((num/denom) + 1);
 	else
 		pd->icch = (u_int8_t)(num/denom);
+
+	/* one more bit of ICCH in ICIC */
+	if (pd->flags & IIC_FLAG_HAS_ICIC67) {
+		if ((num/denom) > 0xff)
+			pd->icic |= ICIC_ICCHB8;
+		else
+			pd->icic &= ~ICIC_ICCHB8;
+	}
 
 	/* Enable channel and configure rx ack */
 	iic_set_clr(pd, ICCR, ICCR_ICE, 0);
@@ -603,6 +628,12 @@ static int sh_mobile_i2c_probe(struct platform_device *dev)
 		ret = -ENXIO;
 		goto err_irq;
 	}
+
+	/* The IIC blocks on SH-Mobile ARM processors
+	 * come with two new bits in ICIC.
+	 */
+	if (size > 0x17)
+		pd->flags |= IIC_FLAG_HAS_ICIC67;
 
 	/* Enable Runtime PM for this device.
 	 *
