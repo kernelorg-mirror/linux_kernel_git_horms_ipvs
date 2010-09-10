@@ -993,8 +993,7 @@ static int __devinit tmio_mmc_probe(struct platform_device *dev)
 	else
 		mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
 
-	mmc->max_phys_segs = 128;
-	mmc->max_hw_segs = 128;
+	mmc->max_segs = 128;
 	mmc->max_blk_size = 512;
 	mmc->max_blk_count = 65535;
 	mmc->max_req_size = mmc->max_blk_size * mmc->max_blk_count;
