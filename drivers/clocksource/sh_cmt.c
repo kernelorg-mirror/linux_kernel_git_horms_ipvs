@@ -285,15 +285,11 @@ static void sh_cmt_clock_event_program_verify(struct sh_cmt_priv *p,
 
 static void sh_cmt_set_next(struct sh_cmt_priv *p, unsigned long delta)
 {
-	unsigned long flags;
-
 	if (delta > p->max_match_value)
 		dev_warn(&p->pdev->dev, "delta out of range\n");
 
-	spin_lock_irqsave(&p->lock, flags);
 	p->next_match_value = delta;
 	sh_cmt_clock_event_program_verify(p, 0);
-	spin_unlock_irqrestore(&p->lock, flags);
 }
 
 static irqreturn_t sh_cmt_interrupt(int irq, void *dev_id)
@@ -467,6 +463,7 @@ static struct sh_cmt_priv *ced_to_sh_cmt(struct clock_event_device *ced)
 static void sh_cmt_clock_event_start(struct sh_cmt_priv *p, int periodic)
 {
 	struct clock_event_device *ced = &p->ced;
+	unsigned long flags;
 
 	sh_cmt_start(p, FLAG_CLOCKEVENT);
 
@@ -477,10 +474,12 @@ static void sh_cmt_clock_event_start(struct sh_cmt_priv *p, int periodic)
 	ced->max_delta_ns = clockevent_delta2ns(p->max_match_value, ced);
 	ced->min_delta_ns = clockevent_delta2ns(0x1f, ced);
 
+	spin_lock_irqsave(&p->lock, flags);
 	if (periodic)
 		sh_cmt_set_next(p, ((p->rate + HZ/2) / HZ) - 1);
 	else
 		sh_cmt_set_next(p, p->max_match_value);
+	spin_unlock_irqrestore(&p->lock, flags);
 }
 
 static void sh_cmt_clock_event_mode(enum clock_event_mode mode,
@@ -524,8 +523,12 @@ static int sh_cmt_clock_event_next(unsigned long delta,
 	BUG_ON(ced->mode != CLOCK_EVT_MODE_ONESHOT);
 	if (likely(p->flags & FLAG_IRQCONTEXT))
 		p->next_match_value = delta - 1;
-	else
+	else {
+		unsigned long flags;
+		spin_lock_irqsave(&p->lock, flags);
 		sh_cmt_set_next(p, delta - 1);
+		spin_unlock_irqrestore(&p->lock, flags);
+	}
 
 	return 0;
 }
