@@ -49,6 +49,7 @@ struct sh_cmt_priv {
 	struct clock_event_device ced;
 	struct clocksource cs;
 	unsigned long total_cycles;
+	struct clk *rclk;
 };
 
 static DEFINE_SPINLOCK(sh_cmt_lock);
@@ -164,10 +165,10 @@ static int sh_cmt_enable(struct sh_cmt_priv *p, unsigned long *rate)
 
 	/* configure channel, periodic mode and maximum timeout */
 	if (p->width == 16) {
-		*rate = clk_get_rate(p->clk) / 512;
+		*rate = clk_get_rate(p->rclk) / 512;
 		sh_cmt_write(p, CMCSR, 0x43);
 	} else {
-		*rate = clk_get_rate(p->clk) / 8;
+		*rate = clk_get_rate(p->rclk) / 8;
 		sh_cmt_write(p, CMCSR, 0x01a4);
 	}
 
@@ -440,9 +441,9 @@ static int sh_cmt_register_clocksource(struct sh_cmt_priv *p,
 	cs->flags = CLOCK_SOURCE_IS_CONTINUOUS;
 
 	/* clk_get_rate() needs an enabled clock */
-	clk_enable(p->clk);
-	p->rate = clk_get_rate(p->clk) / ((p->width == 16) ? 512 : 8);
-	clk_disable(p->clk);
+	clk_enable(p->rclk);
+	p->rate = clk_get_rate(p->rclk) / ((p->width == 16) ? 512 : 8);
+	clk_disable(p->rclk);
 
 	/* TODO: calculate good shift from rate and counter bit width */
 	cs->shift = 0;
@@ -627,6 +628,17 @@ static int sh_cmt_setup(struct sh_cmt_priv *p, struct platform_device *pdev)
 			goto err1;
 		}
 	}
+
+	/* get rate clock */
+	if (cfg->clk) {
+		p->rclk = clk_get(NULL, cfg->clk);
+		if (IS_ERR(p->rclk)) {
+			dev_err(&p->pdev->dev, "cannot get rate clock\n");
+			ret = PTR_ERR(p->rclk);
+			goto err1;
+		}
+	} else
+		p->rclk = p->clk;
 
 	if (resource_size(res) == 6) {
 		p->width = 16;

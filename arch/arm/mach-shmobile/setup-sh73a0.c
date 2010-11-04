@@ -164,6 +164,7 @@ static struct platform_device scif7_device = {
 static struct sh_timer_config cmt10_platform_data = {
 	.name = "CMT10",
 	.channel_offset = 0x10,
+	.clk = "r_clk",
 	.timer_bit = 0,
 	.clockevent_rating = 125,
 	.clocksource_rating = 125,
