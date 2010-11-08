@@ -50,6 +50,7 @@
 
 static struct r8a66597_platdata usb_data = {
 	.on_chip	= 1,
+	.dma_trans_byte = 32,
 };
 
 static struct resource usb_resources[] = {

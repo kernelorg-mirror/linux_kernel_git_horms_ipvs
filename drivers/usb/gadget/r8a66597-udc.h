@@ -28,6 +28,7 @@
 #endif
 
 #include <linux/usb/r8a66597.h>
+#include <linux/usb/r8a66597_dmac.h>
 
 #define R8A66597_MAX_SAMPLING	10
 
@@ -65,6 +66,7 @@ struct r8a66597_pipe_info {
 struct r8a66597_request {
 	struct usb_request	req;
 	struct list_head	queue;
+	unsigned		mapped:1;
 };
 
 struct r8a66597_ep {
@@ -87,11 +89,14 @@ struct r8a66597_ep {
 	unsigned char		fifoctr;
 	unsigned char		fifotrn;
 	unsigned char		pipectr;
+	unsigned char		pipetre;
+	unsigned char		pipetrn;
 };
 
 struct r8a66597 {
 	spinlock_t		lock;
 	void __iomem		*reg;
+	void __iomem		*dma_reg;
 
 #ifdef CONFIG_HAVE_CLK
 	struct clk *clk;
@@ -219,6 +224,19 @@ static inline void r8a66597_write_fifo(struct r8a66597 *r8a66597,
 		iowrite8(buf[i], fifoaddr + adj - (i & adj));
 }
 
+/* USBHS-DMA Read/Write */
+static inline u32 r8a66597_dma_read(struct r8a66597 *r8a66597,
+				unsigned long offset)
+{
+	return inl(r8a66597->dma_reg + offset);
+}
+
+static inline void r8a66597_dma_write(struct r8a66597 *r8a66597, u32 val,
+				unsigned long offset)
+{
+	outl(val, r8a66597->dma_reg + offset);
+}
+
 static inline void r8a66597_mdfy(struct r8a66597 *r8a66597,
 				 u16 val, u16 pat, unsigned long offset)
 {
@@ -227,6 +245,16 @@ static inline void r8a66597_mdfy(struct r8a66597 *r8a66597,
 	tmp = tmp & (~pat);
 	tmp = tmp | val;
 	r8a66597_write(r8a66597, tmp, offset);
+}
+
+static inline void r8a66597_dma_mdfy(struct r8a66597 *r8a66597,
+				 u32 val, u32 pat, unsigned long offset)
+{
+	u32 tmp;
+	tmp = r8a66597_dma_read(r8a66597, offset);
+	tmp = tmp & (~pat);
+	tmp = tmp | val;
+	r8a66597_dma_write(r8a66597, tmp, offset);
 }
 
 static inline u16 get_xtal_from_pdata(struct r8a66597_platdata *pdata)
@@ -256,7 +284,17 @@ static inline u16 get_xtal_from_pdata(struct r8a66597_platdata *pdata)
 #define r8a66597_bset(r8a66597, val, offset)	\
 			r8a66597_mdfy(r8a66597, val, 0, offset)
 
+#define r8a66597_dma_bclr(r8a66597, val, offset)	\
+			r8a66597_dma_mdfy(r8a66597, 0, val, offset)
+#define r8a66597_dma_bset(r8a66597, val, offset)	\
+			r8a66597_dma_mdfy(r8a66597, val, 0, offset)
+
 #define get_pipectr_addr(pipenum)	(PIPE1CTR + (pipenum - 1) * 2)
+#define get_pipetre_addr(pipenum) (PIPE1TRE + (pipenum - 1) * 4)
+#define get_pipetrn_addr(pipenum) (PIPE1TRN + (pipenum - 1) * 4)
+
+#define check_bulk_or_isoc(pipenum) ((pipenum >= 1 && pipenum <= 5))
+#define check_interrupt(pipenum)  ((pipenum >= 6 && pipenum <= 9))
 
 #define enable_irq_ready(r8a66597, pipenum)	\
 	enable_pipe_irq(r8a66597, pipenum, BRDYENB)

@@ -42,6 +42,9 @@ struct r8a66597_platdata {
 
 	/* set one = big endian, set zero = little endian */
 	unsigned	endian:1;
+
+	/* DMA Transfer Byte Setting = 8 or 16 or 32  */
+	unsigned	dma_trans_byte:6;
 };
 
 /* Register definitions */
