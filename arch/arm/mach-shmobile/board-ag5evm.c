@@ -38,6 +38,7 @@
 #include <linux/input.h>
 #include <linux/input/sh_keysc.h>
 #include <linux/mmc/host.h>
+#include <linux/mmc/sh_mmcif.h>
 #include <linux/mfd/sh_mobile_sdhi.h>
 
 #include <mach/hardware.h>
@@ -255,12 +256,56 @@ static struct i2c_board_info i2c2_devices[] = {
 	},
 };
 
+static struct resource sh_mmcif_resources[] = {
+	[0] = {
+		.name	= "MMCIF",
+		.start	= 0xe6bd0000,
+		.end	= 0xe6bd00ff,
+		.flags	= IORESOURCE_MEM,
+	},
+	/*
+	 * XXX: INTC spec (7.7 SPI) has a document error on MMC interrupts.
+	 * Normal interrupt (MMC NOR) is supposed to be assigned to spi(141),
+	 * and error interrupt (MMC ERR) is to spi(140), respectively.
+	 */
+	[1] = {
+		/* MMC ERR */
+		.start	= gic_spi(140),
+		.flags	= IORESOURCE_IRQ,
+	},
+	[2] = {
+		/* MMC NOR */
+		.start	= gic_spi(141),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct sh_mmcif_plat_data sh_mmcif_plat = {
+	.sup_pclk	= 0,
+	.ocr		= MMC_VDD_165_195 | MMC_VDD_32_33 | MMC_VDD_33_34,
+	.caps		= MMC_CAP_4_BIT_DATA |
+			  MMC_CAP_8_BIT_DATA,
+};
+
+static struct platform_device sh_mmcif_device = {
+	.name		= "sh_mmcif",
+	.id		= 0,
+	.dev		= {
+		.dma_mask		= NULL,
+		.coherent_dma_mask	= DMA_BIT_MASK(32),
+		.platform_data		= &sh_mmcif_plat,
+	},
+	.num_resources	= ARRAY_SIZE(sh_mmcif_resources),
+	.resource	= sh_mmcif_resources,
+};
+
 static struct platform_device *ag5evm_devices[] __initdata = {
 	&usb_func_device,
 	&eth_device,
 	&keysc_device,
 	&sdhi0_device,
 	&fsi_device,
+	&sh_mmcif_device,
 };
 
 static struct map_desc ag5evm_io_desc[] __initdata = {
@@ -333,6 +378,18 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_SDHID0_2, NULL);
 	gpio_request(GPIO_FN_SDHID0_1, NULL);
 	gpio_request(GPIO_FN_SDHID0_0, NULL);
+
+	/* enable MMCIF */
+	gpio_request(GPIO_FN_MMCCLK0, NULL);
+	gpio_request(GPIO_FN_MMCD0_0, NULL);
+	gpio_request(GPIO_FN_MMCD0_1, NULL);
+	gpio_request(GPIO_FN_MMCD0_2, NULL);
+	gpio_request(GPIO_FN_MMCD0_3, NULL);
+	gpio_request(GPIO_FN_MMCD0_4, NULL);
+	gpio_request(GPIO_FN_MMCD0_5, NULL);
+	gpio_request(GPIO_FN_MMCD0_6, NULL);
+	gpio_request(GPIO_FN_MMCD0_7, NULL);
+	gpio_request(GPIO_FN_MMCCMD0, NULL);
 
 	/* enable KEYSC */
 	clk_enable(clk_get(NULL, "keysc0"));
