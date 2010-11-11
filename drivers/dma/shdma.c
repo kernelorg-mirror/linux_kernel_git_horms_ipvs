@@ -169,6 +169,12 @@ static void dmae_init(struct sh_dmae_chan *sh_chan)
 	 */
 	u32 chcr = DM_INC | SM_INC | 0x400 | log2size_to_chcr(sh_chan,
 						   LOG2_DEFAULT_XFER_SIZE);
+	/*
+	 * XXX: Inspired from the workaround for AG5 errata E115.
+	 * Without this workaround, dmatest will report bunch of errors.
+	 */
+	chcr |= 1UL << 7; /* set BD (Burst Disable) bit */
+
 	sh_chan->xmit_shift = calc_xmit_shift(sh_chan, chcr);
 	sh_dmae_writel(sh_chan, chcr, CHCR);
 }
