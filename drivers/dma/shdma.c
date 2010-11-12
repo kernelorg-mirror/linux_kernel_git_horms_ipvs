@@ -60,18 +60,19 @@ static u32 sh_dmae_readl(struct sh_dmae_chan *sh_dc, u32 reg)
 
 static u16 dmaor_read(struct sh_dmae_device *shdev)
 {
-	return __raw_readw(shdev->chan_reg + DMAOR / sizeof(u32));
+	return __raw_readw(shdev->dmaor + DMAOR / sizeof(u16));
 }
 
 static void dmaor_write(struct sh_dmae_device *shdev, u16 data)
 {
-	__raw_writew(data, shdev->chan_reg + DMAOR / sizeof(u32));
+	__raw_writew(data, shdev->dmaor + DMAOR / sizeof(u16));
 }
 
 /*
  * Reset DMA controller
  *
  * SH7780 has two DMAOR register
+ * SH77A0 has operational registers just off channel registers
  */
 static void sh_dmae_ctl_stop(struct sh_dmae_device *shdev)
 {
@@ -190,7 +191,7 @@ static int dmae_set_dmars(struct sh_dmae_chan *sh_chan, u16 val)
 						struct sh_dmae_device, common);
 	struct sh_dmae_pdata *pdata = shdev->pdata;
 	const struct sh_dmae_channel *chan_pdata = &pdata->channel[sh_chan->id];
-	u16 __iomem *addr = shdev->dmars + chan_pdata->dmars / sizeof(u16);
+	u16 __iomem *addr = (u16 __iomem *)sh_chan->base + chan_pdata->dmars / sizeof(u16);
 	int shift = chan_pdata->dmars_bit;
 
 	if (dmae_is_busy(sh_chan))
@@ -826,7 +827,12 @@ static irqreturn_t sh_dmae_err(int irq, void *data)
 	/* halt the dma controller */
 	sh_dmae_ctl_stop(shdev);
 
-	/* We cannot detect, which channel caused the error, have to reset all */
+	/*
+	 * TODO: In former SH-Mobile ARM SoCs, we couldn't know which channel
+	 * caused the error, so we needed to terminate all ongoing transactions
+	 * and reset all channels.  In AG5 system, however, there might be some
+	 * way to detect them.  Need to investigate the hardware specs.
+	 */
 	for (i = 0; i < SH_DMAC_MAX_CHANNELS; i++) {
 		struct sh_dmae_chan *sh_chan = shdev->chan[i];
 		if (sh_chan) {
@@ -970,15 +976,17 @@ static int __init sh_dmae_probe(struct platform_device *pdev)
 	int errirq, chan_irq[SH_DMAC_MAX_CHANNELS];
 	int err, i, irq_cnt = 0, irqres = 0;
 	struct sh_dmae_device *shdev;
-	struct resource *chan, *dmars, *errirq_res, *chanirq_res;
+	struct resource *chan, *dmars, *dmaor, *errirq_res, *chanirq_res;
 
 	/* get platform data */
 	if (!pdata || !pdata->channel_num)
 		return -ENODEV;
 
 	chan = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	/* In AG5 system, operational register is just off channel registers */
+	dmaor = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	/* DMARS area is optional, if absent, this controller cannot do slave DMA */
-	dmars = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	dmars = platform_get_resource(pdev, IORESOURCE_MEM, 2);
 	/*
 	 * IRQ resources:
 	 * 1. there always must be at least one IRQ IO-resource. On SH4 it is
@@ -996,12 +1004,18 @@ static int __init sh_dmae_probe(struct platform_device *pdev)
 	 *    requested with the IRQF_SHARED flag
 	 */
 	errirq_res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!chan || !errirq_res)
+	if (!chan || !dmaor || !errirq_res)
 		return -ENODEV;
 
 	if (!request_mem_region(chan->start, resource_size(chan), pdev->name)) {
 		dev_err(&pdev->dev, "DMAC register region already claimed\n");
 		return -EBUSY;
+	}
+
+	if (!request_mem_region(dmaor->start, resource_size(dmaor), pdev->name)) {
+		dev_err(&pdev->dev, "DMAC operational register region already claimed\n");
+		err = -EBUSY;
+		goto ermrdmaor;
 	}
 
 	if (dmars && !request_mem_region(dmars->start, resource_size(dmars), pdev->name)) {
@@ -1020,6 +1034,9 @@ static int __init sh_dmae_probe(struct platform_device *pdev)
 	shdev->chan_reg = ioremap(chan->start, resource_size(chan));
 	if (!shdev->chan_reg)
 		goto emapchan;
+	shdev->dmaor = ioremap(dmaor->start, resource_size(dmaor));
+	if (!shdev->dmaor)
+		goto emapdmaor;
 	if (dmars) {
 		shdev->dmars = ioremap(dmars->start, resource_size(dmars));
 		if (!shdev->dmars)
@@ -1040,8 +1057,8 @@ static int __init sh_dmae_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&shdev->common.channels);
 
 	dma_cap_set(DMA_MEMCPY, shdev->common.cap_mask);
-	if (dmars)
-		dma_cap_set(DMA_SLAVE, shdev->common.cap_mask);
+	/* In AG5 sytem, DMARS is always available */
+	dma_cap_set(DMA_SLAVE, shdev->common.cap_mask);
 
 	shdev->common.device_alloc_chan_resources
 		= sh_dmae_alloc_chan_resources;
@@ -1139,6 +1156,8 @@ rst_err:
 	if (dmars)
 		iounmap(shdev->dmars);
 emapdmars:
+	iounmap(shdev->dmaor);
+emapdmaor:
 	iounmap(shdev->chan_reg);
 emapchan:
 	kfree(shdev);
@@ -1146,6 +1165,8 @@ ealloc:
 	if (dmars)
 		release_mem_region(dmars->start, resource_size(dmars));
 ermrdmars:
+	release_mem_region(dmaor->start, resource_size(dmaor));
+ermrdmaor:
 	release_mem_region(chan->start, resource_size(chan));
 
 	return err;

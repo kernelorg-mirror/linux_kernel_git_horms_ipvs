@@ -17,7 +17,7 @@
 #include <linux/interrupt.h>
 #include <linux/list.h>
 
-#define SH_DMAC_MAX_CHANNELS 6
+#define SH_DMAC_MAX_CHANNELS 20
 #define SH_DMA_SLAVE_NUMBER 256
 #define SH_DMA_TCR_MAX 0x00FFFFFF	/* 16MB */
 
@@ -45,6 +45,7 @@ struct sh_dmae_device {
 	struct sh_dmae_pdata *pdata;
 	u32 __iomem *chan_reg;
 	u16 __iomem *dmars;
+	u16 __iomem *dmaor;
 };
 
 #define to_sh_chan(chan) container_of(chan, struct sh_dmae_chan, common)

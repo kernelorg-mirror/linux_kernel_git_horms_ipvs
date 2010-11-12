@@ -69,7 +69,11 @@ struct sh_dmae_pdata {
 #define DAR	0x04
 #define TCR	0x08
 #define CHCR	0x0C
-#define DMAOR	0x40
+
+/* Operational register */
+#define DMAICR		0x10
+#define DMAISTA		0x20
+#define DMAOR		0x60
 
 /* DMAOR definitions */
 #define DMAOR_AE	0x00000004

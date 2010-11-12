@@ -27,9 +27,11 @@
 #include <linux/input.h>
 #include <linux/io.h>
 #include <linux/serial_sci.h>
+#include <linux/sh_dma.h>
 #include <linux/sh_intc.h>
 #include <linux/sh_timer.h>
 #include <mach/hardware.h>
+#include <mach/sh73a0.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 
@@ -193,6 +195,245 @@ static struct platform_device cmt10_device = {
 	.num_resources	= ARRAY_SIZE(cmt10_resources),
 };
 
+/* Transmit sizes and respective CHCR register values */
+enum {
+	XMIT_SZ_8BIT		= 0,
+	XMIT_SZ_16BIT		= 1,
+	XMIT_SZ_32BIT		= 2,
+	XMIT_SZ_64BIT		= 7,
+	XMIT_SZ_128BIT		= 3,
+	XMIT_SZ_256BIT		= 4,
+	XMIT_SZ_512BIT		= 5,
+};
+
+/* log2(size / 8) - used to calculate number of transfers */
+#define TS_SHIFT {			\
+	[XMIT_SZ_8BIT]		= 0,	\
+	[XMIT_SZ_16BIT]		= 1,	\
+	[XMIT_SZ_32BIT]		= 2,	\
+	[XMIT_SZ_64BIT]		= 3,	\
+	[XMIT_SZ_128BIT]	= 4,	\
+	[XMIT_SZ_256BIT]	= 5,	\
+	[XMIT_SZ_512BIT]	= 6,	\
+}
+
+#define TS_INDEX2VAL(i)		((((i) & 3) << 3) | (((i) & 0xc) << (20 - 2)))
+
+static const struct sh_dmae_slave_config sh73a0_dmae_slaves[] = {
+	{
+		.slave_id	= SHDMA_SLAVE_SCIF0_TX,
+		.addr		= 0xe6c40020,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x21,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF0_RX,
+		.addr		= 0xe6c40024,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x22,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF1_TX,
+		.addr		= 0xe6c50020,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x25,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF1_RX,
+		.addr		= 0xe6c50024,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x26,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF2_TX,
+		.addr		= 0xe6c60020,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x29,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF2_RX,
+		.addr		= 0xe6c60024,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x2a,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF3_TX,
+		.addr		= 0xe6c70020,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x2d,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF3_RX,
+		.addr		= 0xe6c70024,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x2e,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF4_TX,
+		.addr		= 0xe6c80020,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x39,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF4_RX,
+		.addr		= 0xe6c80024,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x3a,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF5_TX,
+		.addr		= 0xe6cb0020,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x35,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF5_RX,
+		.addr		= 0xe6cb0024,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x36,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF6_TX,
+		.addr		= 0xe6cc0020,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x1d,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF6_RX,
+		.addr		= 0xe6cc0024,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x1e,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF7_TX,
+		.addr		= 0xe6cd0020,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x19,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF7_RX,
+		.addr		= 0xe6cd0024,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x1a,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF8_TX,
+		.addr		= 0xe6c30040,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x3d,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SCIF8_RX,
+		.addr		= 0xe6c30060,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_8BIT),
+		.mid_rid	= 0x3e,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SDHI0_TX,
+		.addr		= 0xee100030,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_16BIT),
+		.mid_rid	= 0xc1,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SDHI0_RX,
+		.addr		= 0xee100030,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_16BIT),
+		.mid_rid	= 0xc2,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SDHI1_TX,
+		.addr		= 0xee120030,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_16BIT),
+		.mid_rid	= 0xc9,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SDHI1_RX,
+		.addr		= 0xee120030,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_16BIT),
+		.mid_rid	= 0xca,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SDHI2_TX,
+		.addr		= 0xee140030,
+		.chcr		= DM_FIX | SM_INC | 0x800 | TS_INDEX2VAL(XMIT_SZ_16BIT),
+		.mid_rid	= 0xcd,
+	}, {
+		.slave_id	= SHDMA_SLAVE_SDHI2_RX,
+		.addr		= 0xee140030,
+		.chcr		= DM_INC | SM_FIX | 0x800 | TS_INDEX2VAL(XMIT_SZ_16BIT),
+		.mid_rid	= 0xce,
+	},
+};
+
+#define DMAE_CHANNEL(_offset, _dmars, _dmars_bit)	\
+	{						\
+		.offset		= _offset,		\
+		.dmars		= _dmars,		\
+		.dmars_bit	= _dmars_bit,		\
+	}
+
+static const struct sh_dmae_channel sh73a0_dmae_channels[] = {
+	DMAE_CHANNEL(0, 0x40, 0),
+	DMAE_CHANNEL(0x80, 0x40, 0),
+	DMAE_CHANNEL(0x100, 0x40, 0),
+	DMAE_CHANNEL(0x180, 0x40, 0),
+	DMAE_CHANNEL(0x200, 0x40, 0),
+	DMAE_CHANNEL(0x280, 0x40, 0),
+	DMAE_CHANNEL(0x300, 0x40, 0),
+	DMAE_CHANNEL(0x380, 0x40, 0),
+	DMAE_CHANNEL(0x400, 0x40, 0),
+	DMAE_CHANNEL(0x480, 0x40, 0),
+	DMAE_CHANNEL(0x500, 0x40, 0),
+	DMAE_CHANNEL(0x580, 0x40, 0),
+	DMAE_CHANNEL(0x600, 0x40, 0),
+	DMAE_CHANNEL(0x680, 0x40, 0),
+	DMAE_CHANNEL(0x700, 0x40, 0),
+	DMAE_CHANNEL(0x780, 0x40, 0),
+	DMAE_CHANNEL(0x800, 0x40, 0),
+	DMAE_CHANNEL(0x880, 0x40, 0),
+	DMAE_CHANNEL(0x900, 0x40, 0),
+	DMAE_CHANNEL(0x980, 0x40, 0),
+};
+
+static const unsigned int ts_shift[] = TS_SHIFT;
+
+static struct sh_dmae_pdata dma_platform_data = {
+	.slave		= sh73a0_dmae_slaves,
+	.slave_num	= ARRAY_SIZE(sh73a0_dmae_slaves),
+	.channel	= sh73a0_dmae_channels,
+	.channel_num	= ARRAY_SIZE(sh73a0_dmae_channels),
+	.ts_low_shift	= 3,
+	.ts_low_mask	= 0x18,
+	.ts_high_shift	= (20 - 2),     /* 2 bits for shifted low TS */
+	.ts_high_mask	= 0x00300000,
+	.ts_shift	= ts_shift,
+	.ts_shift_num	= ARRAY_SIZE(ts_shift),
+	.dmaor_init	= DMAOR_DME,
+};
+
+/* Resource order important! */
+static struct resource sh73a0_dmae_resources[] = {
+	/*
+	 * TODO: DMA extended resource selector (DMARS) is used to be
+	 * part of auxiliary functions, and placed a little distance away.
+	 * In AG5 system, however, DMA registers are re-arranged and DMARS
+	 * is now merged into per-channel registers.  Platform resources
+	 * need to be adapted accordingly.
+	 */
+	{
+		/* Channel registers including DMARSx */
+		.start	= 0xfe008000,
+		.end	= 0xfe008a00 - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		/* Operational registers including DMAOR */
+		.start	= 0xfe000000,
+		.end	= 0xfe000080 - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		/* DMA error IRQ */
+		.start	= gic_spi(129),
+		.end	= gic_spi(129),
+		.flags	= IORESOURCE_IRQ,
+	},
+	{
+		/* IRQ for channels 0-19 */
+		.start	= gic_spi(109),
+		.end	= gic_spi(128),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device dma_device = {
+	.name		= "sh-dma-engine",
+	.id		= 0,
+	.resource	= sh73a0_dmae_resources,
+	.num_resources	= ARRAY_SIZE(sh73a0_dmae_resources),
+	.dev		= {
+		.platform_data	= &dma_platform_data,
+	},
+};
+
 static struct resource i2c0_resources[] = {
 	[0] = {
 		.name	= "IIC0",
@@ -308,6 +549,7 @@ static struct platform_device *sh73a0_early_devices[] __initdata = {
 	&scif6_device,
 	&scif7_device,
 	&cmt10_device,
+	&dma_device,
 };
 
 static struct platform_device *sh73a0_late_devices[] __initdata = {

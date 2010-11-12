@@ -350,6 +350,7 @@ void __init ag5evm_init_irq(void)
 }
 
 #define SUBCKCR		0xe6150080
+#define SRCR2		0xe61580b0
 
 static void __init ag5evm_init(void)
 {
@@ -449,6 +450,9 @@ static void __init ag5evm_init(void)
 	if (request_irq(gic_spi(84), sdhi0_mpx_interrupt, IRQF_DISABLED,
 		"mpx", 0))
 		pr_warning("Failed to get multiplex irq.");
+
+	/* Clear software reset bit on SY-DMAC module */
+	__raw_writel(__raw_readl(SRCR2) & ~(1 << 18), SRCR2);
 
 	sh73a0_add_standard_devices();
 
