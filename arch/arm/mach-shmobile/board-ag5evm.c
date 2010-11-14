@@ -163,6 +163,11 @@ static struct platform_device keysc_device = {
 	},
 };
 
+static struct sh_mobile_sdhi_info sdhi0_info = {
+	.dma_slave_tx	= SHDMA_SLAVE_SDHI0_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SDHI0_RX,
+};
+
 static struct resource sdhi0_resources[] = {
 	[0] = {
 		.name	= "SDHI0",
@@ -181,6 +186,9 @@ static struct platform_device sdhi0_device = {
 	.id		= 0,
 	.num_resources	= ARRAY_SIZE(sdhi0_resources),
 	.resource	= sdhi0_resources,
+	.dev	= {
+		.platform_data	= &sdhi0_info,
+	},
 };
 
 /* FSI A */
