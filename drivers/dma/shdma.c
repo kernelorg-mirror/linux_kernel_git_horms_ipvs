@@ -39,7 +39,7 @@ enum sh_dmae_desc_status {
 	DESC_WAITING,	/* callback called, waiting for ack / re-submit */
 };
 
-#define NR_DESCS_PER_CHANNEL 32
+#define NR_DESCS_PER_CHANNEL 128
 /* Default MEMCPY transfer size = 2^2 = 4 bytes */
 #define LOG2_DEFAULT_XFER_SIZE	2
 
