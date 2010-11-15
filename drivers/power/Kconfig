@@ -142,4 +142,7 @@ config CHARGER_PCF50633
 	help
 	 Say Y to include support for NXP PCF50633 Main Battery Charger.
 
+config BATTERY_DUMMY
+	bool "Dummy battery driver"
+
 endif # POWER_SUPPLY
