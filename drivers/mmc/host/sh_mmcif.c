@@ -26,9 +26,12 @@
 #include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <linux/mmc/sh_mmcif.h>
+#include <linux/scatterlist.h>
+#include <linux/blkdev.h>
+#include <linux/sh_dma.h>
 
 #define DRIVER_NAME	"sh_mmcif"
-#define DRIVER_VERSION	"2010-04-28"
+#define DRIVER_VERSION	"2010-11-12"
 
 /* CE_CMD_SET */
 #define CMD_MASK		0x3f000000
@@ -175,18 +178,64 @@
 
 struct sh_mmcif_host {
 	struct mmc_host *mmc;
+	struct mmc_request *mrq;
 	struct mmc_data *data;
 	struct mmc_command *cmd;
 	struct platform_device *pd;
 	struct clk *hclk;
 	unsigned int clk;
 	int bus_width;
-	u16 wait_int;
-	u16 sd_error;
-	long timeout;
 	void __iomem *addr;
-	wait_queue_head_t intr_wait;
+
+	/* pio related stuff */
+	struct scatterlist      *sg_ptr;
+	unsigned int            sg_len;
+	unsigned int            sg_off;
+
+	/* DMA support */
+	struct sh_dmae_slave param_tx;
+	struct sh_dmae_slave param_rx;
+	struct dma_chan		*chan_rx;
+	struct dma_chan		*chan_tx;
+	unsigned int		data_end;
+	unsigned int		dma_complete;
+
+#ifdef CONFIG_SH_DMAE
+	struct dma_async_tx_descriptor *desc;
+	unsigned int            dma_sglen;
+	dma_cookie_t		cookie;
+#endif
 };
+
+
+static inline void sh_mmcif_init_sg(struct sh_mmcif_host *host,
+	struct mmc_data *data)
+{
+	host->sg_len = data->sg_len;
+	host->sg_ptr = data->sg;
+	host->sg_off = 0;
+}
+
+static inline int sh_mmcif_next_sg(struct sh_mmcif_host *host)
+{
+	host->sg_ptr = sg_next(host->sg_ptr);
+	host->sg_off = 0;
+	return --host->sg_len;
+}
+
+static inline char *sh_mmcif_kmap_atomic(struct scatterlist *sg,
+	unsigned long *flags)
+{
+	local_irq_save(*flags);
+	return kmap_atomic(sg_page(sg), KM_BIO_SRC_IRQ) + sg->offset;
+}
+
+static inline void sh_mmcif_kunmap_atomic(void *virt,
+	unsigned long *flags)
+{
+	kunmap_atomic(virt, KM_BIO_SRC_IRQ);
+	local_irq_restore(*flags);
+}
 
 
 static inline void sh_mmcif_bitset(struct sh_mmcif_host *host,
@@ -232,15 +281,15 @@ static void sh_mmcif_sync_reset(struct sh_mmcif_host *host)
 		SRSPTO_256 | SRBSYTO_29 | SRWDTO_29 | SCCSTO_29);
 	/* byte swap on */
 	sh_mmcif_bitset(host, MMCIF_CE_BUF_ACC, BUF_ACC_ATYP);
+	if (host->chan_rx && host->chan_tx)
+		sh_mmcif_bitset(host, MMCIF_CE_BUF_ACC,
+			BUF_ACC_DMAWEN | BUF_ACC_DMAREN);
 }
 
 static int sh_mmcif_error_manage(struct sh_mmcif_host *host)
 {
 	u32 state1, state2;
 	int ret, timeout = 10000000;
-
-	host->sd_error = 0;
-	host->wait_int = 0;
 
 	state1 = sh_mmcif_readl(host->addr, MMCIF_CE_HOST_STS1);
 	state2 = sh_mmcif_readl(host->addr, MMCIF_CE_HOST_STS2);
@@ -280,146 +329,6 @@ static int sh_mmcif_error_manage(struct sh_mmcif_host *host)
 	return ret;
 }
 
-static int sh_mmcif_single_read(struct sh_mmcif_host *host,
-					struct mmc_request *mrq)
-{
-	struct mmc_data *data = mrq->data;
-	long time;
-	u32 blocksize, i, *p = sg_virt(data->sg);
-
-	host->wait_int = 0;
-
-	/* buf read enable */
-	sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MBUFREN);
-	time = wait_event_interruptible_timeout(host->intr_wait,
-			host->wait_int == 1 ||
-			host->sd_error == 1, host->timeout);
-	if (host->wait_int != 1 && (time == 0 || host->sd_error != 0))
-		return sh_mmcif_error_manage(host);
-
-	host->wait_int = 0;
-	blocksize = (BLOCK_SIZE_MASK &
-			sh_mmcif_readl(host->addr, MMCIF_CE_BLOCK_SET)) + 3;
-	for (i = 0; i < blocksize / 4; i++)
-		*p++ = sh_mmcif_readl(host->addr, MMCIF_CE_DATA);
-
-	/* buffer read end */
-	sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MBUFRE);
-	time = wait_event_interruptible_timeout(host->intr_wait,
-			host->wait_int == 1 ||
-			host->sd_error == 1, host->timeout);
-	if (host->wait_int != 1 && (time == 0 || host->sd_error != 0))
-		return sh_mmcif_error_manage(host);
-
-	host->wait_int = 0;
-	return 0;
-}
-
-static int sh_mmcif_multi_read(struct sh_mmcif_host *host,
-					struct mmc_request *mrq)
-{
-	struct mmc_data *data = mrq->data;
-	long time;
-	u32 blocksize, i, j, sec, *p;
-
-	blocksize = BLOCK_SIZE_MASK & sh_mmcif_readl(host->addr,
-						     MMCIF_CE_BLOCK_SET);
-	for (j = 0; j < data->sg_len; j++) {
-		p = sg_virt(data->sg);
-		host->wait_int = 0;
-		for (sec = 0; sec < data->sg->length / blocksize; sec++) {
-			sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MBUFREN);
-			/* buf read enable */
-			time = wait_event_interruptible_timeout(host->intr_wait,
-				host->wait_int == 1 ||
-				host->sd_error == 1, host->timeout);
-
-			if (host->wait_int != 1 &&
-			    (time == 0 || host->sd_error != 0))
-				return sh_mmcif_error_manage(host);
-
-			host->wait_int = 0;
-			for (i = 0; i < blocksize / 4; i++)
-				*p++ = sh_mmcif_readl(host->addr,
-						      MMCIF_CE_DATA);
-		}
-		if (j < data->sg_len - 1)
-			data->sg++;
-	}
-	return 0;
-}
-
-static int sh_mmcif_single_write(struct sh_mmcif_host *host,
-					struct mmc_request *mrq)
-{
-	struct mmc_data *data = mrq->data;
-	long time;
-	u32 blocksize, i, *p = sg_virt(data->sg);
-
-	host->wait_int = 0;
-	sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MBUFWEN);
-
-	/* buf write enable */
-	time = wait_event_interruptible_timeout(host->intr_wait,
-			host->wait_int == 1 ||
-			host->sd_error == 1, host->timeout);
-	if (host->wait_int != 1 && (time == 0 || host->sd_error != 0))
-		return sh_mmcif_error_manage(host);
-
-	host->wait_int = 0;
-	blocksize = (BLOCK_SIZE_MASK &
-			sh_mmcif_readl(host->addr, MMCIF_CE_BLOCK_SET)) + 3;
-	for (i = 0; i < blocksize / 4; i++)
-		sh_mmcif_writel(host->addr, MMCIF_CE_DATA, *p++);
-
-	/* buffer write end */
-	sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MDTRANE);
-
-	time = wait_event_interruptible_timeout(host->intr_wait,
-			host->wait_int == 1 ||
-			host->sd_error == 1, host->timeout);
-	if (host->wait_int != 1 && (time == 0 || host->sd_error != 0))
-		return sh_mmcif_error_manage(host);
-
-	host->wait_int = 0;
-	return 0;
-}
-
-static int sh_mmcif_multi_write(struct sh_mmcif_host *host,
-						struct mmc_request *mrq)
-{
-	struct mmc_data *data = mrq->data;
-	long time;
-	u32 i, sec, j, blocksize, *p;
-
-	blocksize = BLOCK_SIZE_MASK & sh_mmcif_readl(host->addr,
-						     MMCIF_CE_BLOCK_SET);
-
-	for (j = 0; j < data->sg_len; j++) {
-		p = sg_virt(data->sg);
-		host->wait_int = 0;
-		for (sec = 0; sec < data->sg->length / blocksize; sec++) {
-			sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MBUFWEN);
-			/* buf write enable*/
-			time = wait_event_interruptible_timeout(host->intr_wait,
-				host->wait_int == 1 ||
-				host->sd_error == 1, host->timeout);
-
-			if (host->wait_int != 1 &&
-			    (time == 0 || host->sd_error != 0))
-				return sh_mmcif_error_manage(host);
-
-			host->wait_int = 0;
-			for (i = 0; i < blocksize / 4; i++)
-				sh_mmcif_writel(host->addr,
-						MMCIF_CE_DATA, *p++);
-		}
-		if (j < data->sg_len - 1)
-			data->sg++;
-	}
-	return 0;
-}
-
 static void sh_mmcif_get_response(struct sh_mmcif_host *host,
 						struct mmc_command *cmd)
 {
@@ -432,11 +341,6 @@ static void sh_mmcif_get_response(struct sh_mmcif_host *host,
 		cmd->resp[0] = sh_mmcif_readl(host->addr, MMCIF_CE_RESP0);
 }
 
-static void sh_mmcif_get_cmd12response(struct sh_mmcif_host *host,
-						struct mmc_command *cmd)
-{
-	cmd->resp[0] = sh_mmcif_readl(host->addr, MMCIF_CE_RESP_CMD12);
-}
 
 static u32 sh_mmcif_set_cmd(struct sh_mmcif_host *host,
 		struct mmc_request *mrq, struct mmc_command *cmd, u32 opc)
@@ -493,11 +397,8 @@ static u32 sh_mmcif_set_cmd(struct sh_mmcif_host *host,
 	if (opc == MMC_WRITE_BLOCK || opc == MMC_WRITE_MULTIPLE_BLOCK)
 		tmp |= CMD_SET_DWEN;
 	/* CMLTE/CMD12EN */
-	if (opc == MMC_READ_MULTIPLE_BLOCK || opc == MMC_WRITE_MULTIPLE_BLOCK) {
+	if (opc == MMC_READ_MULTIPLE_BLOCK || opc == MMC_WRITE_MULTIPLE_BLOCK)
 		tmp |= CMD_SET_CMLTE | CMD_SET_CMD12EN;
-		sh_mmcif_bitset(host, MMCIF_CE_BLOCK_SET,
-					mrq->data->blocks << 16);
-	}
 	/* RIDXC[1:0] check bits */
 	if (opc == MMC_SEND_OP_COND || opc == MMC_ALL_SEND_CID ||
 	    opc == MMC_SEND_CSD || opc == MMC_SEND_CID)
@@ -513,38 +414,156 @@ static u32 sh_mmcif_set_cmd(struct sh_mmcif_host *host,
 	return opc = ((opc << 24) | tmp);
 }
 
-static u32 sh_mmcif_data_trans(struct sh_mmcif_host *host,
-				struct mmc_request *mrq, u32 opc)
+static void sh_mmcif_finish_request(struct sh_mmcif_host *host)
 {
-	u32 ret;
+	struct mmc_request *mrq = host->mrq;
 
-	switch (opc) {
-	case MMC_READ_MULTIPLE_BLOCK:
-		ret = sh_mmcif_multi_read(host, mrq);
-		break;
-	case MMC_WRITE_MULTIPLE_BLOCK:
-		ret = sh_mmcif_multi_write(host, mrq);
-		break;
-	case MMC_WRITE_BLOCK:
-		ret = sh_mmcif_single_write(host, mrq);
-		break;
-	case MMC_READ_SINGLE_BLOCK:
-	case MMC_SEND_EXT_CSD:
-		ret = sh_mmcif_single_read(host, mrq);
-		break;
-	default:
-		pr_err(DRIVER_NAME": NOT SUPPORT CMD = d'%08d\n", opc);
-		ret = -EINVAL;
-		break;
+	host->mrq = NULL;
+	host->cmd = NULL;
+	host->data = NULL;
+
+	mmc_request_done(host->mmc, mrq);
+}
+
+static void sh_mmcif_pio_irq(struct sh_mmcif_host *host)
+{
+	struct mmc_data *data = host->data;
+	void *sg_virt;
+	unsigned int *buf;
+	unsigned int i;
+	unsigned int count;
+	unsigned long flags;
+
+	if (!data) {
+		pr_debug("Spurious PIO IRQ\n");
+		return;
 	}
-	return ret;
+
+	sg_virt = sh_mmcif_kmap_atomic(host->sg_ptr, &flags);
+	buf = (unsigned int *)(sg_virt + host->sg_off);
+
+
+	count = host->sg_ptr->length - host->sg_off;
+	if (count > data->blksz)
+		count = data->blksz;
+
+	pr_debug("count: %08x offset: %08x flags %08x\n",
+		 count, host->sg_off, data->flags);
+
+	/* Transfer the data */
+	if (data->flags & MMC_DATA_READ) {
+		for (i = 0; i < count / 4; i++)
+			*buf++ = sh_mmcif_readl(host->addr, MMCIF_CE_DATA);
+	} else {
+		for (i = 0; i < count / 4; i++)
+			sh_mmcif_writel(host->addr, MMCIF_CE_DATA, *buf++);
+	}
+
+	host->sg_off += count;
+
+	sh_mmcif_kunmap_atomic(sg_virt, &flags);
+
+	if (host->sg_off == host->sg_ptr->length)
+		sh_mmcif_next_sg(host);
+}
+
+static void sh_mmcif_do_data_irq(struct sh_mmcif_host *host)
+{
+	struct mmc_data *data = host->data;
+
+	host->data = NULL;
+
+	if (!data) {
+		dev_warn(&host->pd->dev, "Spurious data end IRQ\n");
+		return;
+	}
+
+	/* FIXME - return correct transfer count on errors */
+	if (!data->error)
+		data->bytes_xfered = data->blocks * data->blksz;
+	else
+		data->bytes_xfered = 0;
+
+	pr_debug("Completed data request\n");
+
+	sh_mmcif_finish_request(host);
+}
+
+static void sh_mmcif_data_irq(struct sh_mmcif_host *host)
+{
+	struct mmc_data *data = host->data;
+
+	if (!data)
+		return;
+
+	host->data_end = 1;
+
+	if (host->chan_rx && host->chan_tx) {
+		if (host->dma_complete)
+			sh_mmcif_do_data_irq(host);
+	} else
+		sh_mmcif_do_data_irq(host);
+}
+
+static void sh_mmcif_cmd_irq(struct sh_mmcif_host *host)
+{
+	if (!host->cmd) {
+		pr_debug("Spurious CMD irq\n");
+		return;
+	}
+
+	sh_mmcif_get_response(host, host->cmd);
+
+	if (!host->data)
+		sh_mmcif_finish_request(host);
+}
+
+static irqreturn_t sh_mmcif_intr(int irq, void *dev_id)
+{
+	struct sh_mmcif_host *host = dev_id;
+	u32 state = 0;
+
+	state = sh_mmcif_readl(host->addr, MMCIF_CE_INT);
+	if (state & INT_ERR_STS) {
+		/* err interrupts */
+		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~state);
+		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, state);
+		pr_debug("%s: int err state = %08x\n", DRIVER_NAME, state);
+		host->cmd->error = sh_mmcif_error_manage(host);
+		sh_mmcif_finish_request(host);
+	}
+
+	if (state & (INT_RBSYE | INT_CRSPE)) {
+		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
+				~(INT_RBSYE | INT_CRSPE));
+		sh_mmcif_cmd_irq(host);
+	}
+
+	if (state & (INT_CMD12DRE | INT_CMD12RBE)) {
+		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
+			~(INT_CMD12DRE | INT_CMD12RBE |
+			  INT_CMD12CRE | INT_BUFRE));
+	}
+
+	if (state & (INT_BUFREN | INT_BUFWEN)) {
+		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
+				~(INT_BUFREN | INT_BUFWEN));
+		sh_mmcif_pio_irq(host);
+	}
+
+	if (state & (INT_BUFRE | INT_DTRANE)) {
+		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
+			~(INT_BUFRE | INT_DTRANE));
+		sh_mmcif_data_irq(host);
+	}
+
+	return IRQ_HANDLED;
 }
 
 static void sh_mmcif_start_cmd(struct sh_mmcif_host *host,
 			struct mmc_request *mrq, struct mmc_command *cmd)
 {
-	long time;
-	int ret = 0, mask = 0;
+	int mask = 0;
 	u32 opc = cmd->opcode;
 
 	host->cmd = cmd;
@@ -568,94 +587,212 @@ static void sh_mmcif_start_cmd(struct sh_mmcif_host *host,
 		MASK_MCCSTO | MASK_MCRCSTO | MASK_MWDATTO |
 		MASK_MRDATTO | MASK_MRBSYTO | MASK_MRSPTO;
 
-	if (host->data) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_BLOCK_SET, 0);
-		sh_mmcif_writel(host->addr, MMCIF_CE_BLOCK_SET,
-				mrq->data->blksz);
-	}
+	mask |= MASK_MBUFREN | MASK_MBUFWEN | MASK_MBUFRE | MASK_MDTRANE;
+
 	opc = sh_mmcif_set_cmd(host, mrq, cmd, opc);
 
 	sh_mmcif_writel(host->addr, MMCIF_CE_INT, 0xD80430C0);
 	sh_mmcif_writel(host->addr, MMCIF_CE_INT_MASK, mask);
 	/* set arg */
 	sh_mmcif_writel(host->addr, MMCIF_CE_ARG, cmd->arg);
-	host->wait_int = 0;
 	/* set cmd */
 	sh_mmcif_writel(host->addr, MMCIF_CE_CMD_SET, opc);
-
-	time = wait_event_interruptible_timeout(host->intr_wait,
-		host->wait_int == 1 || host->sd_error == 1, host->timeout);
-	if (host->wait_int != 1 && time == 0) {
-		cmd->error = sh_mmcif_error_manage(host);
-		return;
-	}
-	if (host->sd_error) {
-		switch (cmd->opcode) {
-		case MMC_ALL_SEND_CID:
-		case MMC_SELECT_CARD:
-		case MMC_APP_CMD:
-			cmd->error = -ETIMEDOUT;
-			break;
-		default:
-			pr_debug("%s: Cmd(d'%d) err\n",
-					DRIVER_NAME, cmd->opcode);
-			cmd->error = sh_mmcif_error_manage(host);
-			break;
-		}
-		host->sd_error = 0;
-		host->wait_int = 0;
-		return;
-	}
-	if (!(cmd->flags & MMC_RSP_PRESENT)) {
-		cmd->error = ret;
-		host->wait_int = 0;
-		return;
-	}
-	if (host->wait_int == 1) {
-		sh_mmcif_get_response(host, cmd);
-		host->wait_int = 0;
-	}
-	if (host->data) {
-		ret = sh_mmcif_data_trans(host, mrq, cmd->opcode);
-		if (ret < 0)
-			mrq->data->bytes_xfered = 0;
-		else
-			mrq->data->bytes_xfered =
-				mrq->data->blocks * mrq->data->blksz;
-	}
-	cmd->error = ret;
 }
 
-static void sh_mmcif_stop_cmd(struct sh_mmcif_host *host,
-		struct mmc_request *mrq, struct mmc_command *cmd)
+#ifdef CONFIG_SH_DMAE
+static void sh_mmcif_enable_dma(struct sh_mmcif_host *host, bool enable)
 {
-	long time;
+	if (enable)
+		sh_mmcif_bitset(host, MMCIF_CE_BUF_ACC,
+			BUF_ACC_DMAWEN | BUF_ACC_DMAREN);
+	else
+		sh_mmcif_bitclr(host, MMCIF_CE_BUF_ACC,
+			BUF_ACC_DMAWEN | BUF_ACC_DMAREN);
+}
 
-	if (mrq->cmd->opcode == MMC_READ_MULTIPLE_BLOCK)
-		sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MCMD12DRE);
-	else if (mrq->cmd->opcode == MMC_WRITE_MULTIPLE_BLOCK)
-		sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MCMD12RBE);
-	else {
-		pr_err(DRIVER_NAME": not support stop cmd\n");
-		cmd->error = sh_mmcif_error_manage(host);
-		return;
+static void sh_mmcif_dma_complete(void *arg)
+{
+	struct sh_mmcif_host *host = arg;
+	u32 flags = (host->data->flags & MMC_DATA_READ) ?
+			DMA_FROM_DEVICE : DMA_TO_DEVICE;
+
+	dev_dbg(&host->pd->dev, "Command completed\n");
+
+	dma_unmap_sg(&host->pd->dev, host->sg_ptr, host->dma_sglen, flags);
+
+	host->dma_complete = 1;
+	if (host->data_end)
+		sh_mmcif_do_data_irq(host);
+}
+
+static int sh_mmcif_start_dma(struct sh_mmcif_host *host,
+			       struct mmc_data *data)
+{
+	struct scatterlist *sg = host->sg_ptr;
+	struct dma_async_tx_descriptor *desc = NULL;
+	struct dma_chan *chan = (data->flags & MMC_DATA_READ) ?
+		host->chan_rx : host->chan_tx;
+	int ret;
+	u32 flags = (data->flags & MMC_DATA_READ) ?
+			DMA_FROM_DEVICE : DMA_TO_DEVICE;
+
+	host->dma_complete = 0;
+
+	if (!chan)
+		return 0;
+
+	ret = dma_map_sg(&host->pd->dev, sg, host->sg_len, flags);
+	if (ret > 0) {
+		host->dma_sglen = ret;
+		desc = chan->device->device_prep_slave_sg(chan, sg, ret,
+			flags, DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	}
 
-	time = wait_event_interruptible_timeout(host->intr_wait,
-			host->wait_int == 1 ||
-			host->sd_error == 1, host->timeout);
-	if (host->wait_int != 1 && (time == 0 || host->sd_error != 0)) {
-		cmd->error = sh_mmcif_error_manage(host);
-		return;
+	if (desc) {
+		host->desc = desc;
+		desc->callback = sh_mmcif_dma_complete;
+		desc->callback_param = host;
+		host->cookie = desc->tx_submit(desc);
+		if (host->cookie < 0) {
+			host->desc = NULL;
+			ret = host->cookie;
+		} else {
+			chan->device->device_issue_pending(chan);
+		}
 	}
-	sh_mmcif_get_cmd12response(host, cmd);
-	host->wait_int = 0;
-	cmd->error = 0;
+	dev_dbg(&host->pd->dev, "%s(): mapped %d -> %d, cookie %d, rq %p\n",
+		__func__, host->sg_len, ret, host->cookie, host->mrq);
+
+	if (!host->desc) {
+		/* DMA failed, fall back to PIO */
+		if (ret >= 0)
+			ret = -EIO;
+		/* Free the tx/rx channel */
+		chan = host->chan_rx;
+		if (chan) {
+			host->chan_rx = NULL;
+			dma_release_channel(chan);
+		}
+		chan = host->chan_tx;
+		if (chan) {
+			host->chan_tx = NULL;
+			dma_release_channel(chan);
+		}
+		sh_mmcif_enable_dma(host, 0);
+		dev_warn(&host->pd->dev,
+			 "DMA failed: %d, falling back to PIO\n", ret);
+	}
+
+	dev_dbg(&host->pd->dev, "%s(): desc %p, cookie %d, sg[%d]\n", __func__,
+		desc, host->cookie, host->sg_len);
+
+	return ret > 0 ? 0 : ret;
+}
+
+static bool sh_mmcif_filter(struct dma_chan *chan, void *arg)
+{
+	dev_dbg(chan->device->dev, "%s: slave data %p\n", __func__, arg);
+	chan->private = arg;
+	return true;
+}
+
+static void sh_mmcif_request_dma(struct sh_mmcif_host *host)
+{
+	host->cookie = -EINVAL;
+	host->desc = NULL;
+
+	/* We can only either use DMA for both Tx and Rx or not use it at all */
+	if (host->param_tx.slave_id && host->param_rx.slave_id) {
+		dma_cap_mask_t mask;
+
+		dma_cap_zero(mask);
+		dma_cap_set(DMA_SLAVE, mask);
+
+		host->chan_tx = dma_request_channel(mask, sh_mmcif_filter,
+						&host->param_tx);
+		dev_dbg(&host->pd->dev, "%s: TX: got channel %p\n", __func__,
+			host->chan_tx);
+
+		if (!host->chan_tx)
+			return;
+
+		host->chan_rx = dma_request_channel(mask, sh_mmcif_filter,
+						&host->param_rx);
+		dev_dbg(&host->pd->dev, "%s: RX: got channel %p\n", __func__,
+			host->chan_rx);
+
+		if (!host->chan_rx) {
+			dma_release_channel(host->chan_tx);
+			host->chan_tx = NULL;
+			return;
+		}
+
+		sh_mmcif_enable_dma(host, 1);
+	}
+}
+
+static void sh_mmcif_release_dma(struct sh_mmcif_host *host)
+{
+	if (host->chan_tx) {
+		struct dma_chan *chan = host->chan_tx;
+		host->chan_tx = NULL;
+		dma_release_channel(chan);
+	}
+	if (host->chan_rx) {
+		struct dma_chan *chan = host->chan_rx;
+		host->chan_rx = NULL;
+		dma_release_channel(chan);
+	}
+
+	host->cookie = -EINVAL;
+	host->desc = NULL;
+}
+#else
+static int sh_mmcif_start_dma(struct sh_mmcif_host *host,
+			       struct mmc_data *data)
+{
+	return 0;
+}
+
+static void sh_mmcif_request_dma(struct sh_mmcif_host *host)
+{
+	host->chan_tx = NULL;
+	host->chan_rx = NULL;
+}
+
+static void sh_mmcif_release_dma(struct sh_mmcif_host *host)
+{
+}
+#endif
+
+static int sh_mmcif_start_data(struct sh_mmcif_host *host,
+		struct mmc_data *data)
+{
+	pr_debug("setup data transfer: blocksize %08x  nr_blocks %d\n",
+		 data->blksz, data->blocks);
+
+	/* Hardware cannot perform 1 and 2 byte requests in 4 bit mode */
+	if (data->blksz < 4 && host->mmc->ios.bus_width == MMC_BUS_WIDTH_4) {
+		pr_err("%s: %d byte block unsupported in 4 bit mode\n",
+		       mmc_hostname(host->mmc), data->blksz);
+		return -EINVAL;
+	}
+
+	sh_mmcif_init_sg(host, data);
+	host->data = data;
+	host->data_end = 0;
+
+	/* Set transfer length / blocksize */
+	sh_mmcif_writel(host->addr, MMCIF_CE_BLOCK_SET,
+			data->blksz | (data->blocks << 16));
+
+	return sh_mmcif_start_dma(host, data);
 }
 
 static void sh_mmcif_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
 	struct sh_mmcif_host *host = mmc_priv(mmc);
+	int ret = 0;
 
 	switch (mrq->cmd->opcode) {
 	/* MMCIF does not support SD/SDIO command */
@@ -675,16 +812,21 @@ static void sh_mmcif_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	default:
 		break;
 	}
-	host->data = mrq->data;
-	sh_mmcif_start_cmd(host, mrq, mrq->cmd);
-	host->data = NULL;
 
-	if (mrq->cmd->error != 0) {
-		mmc_request_done(mmc, mrq);
-		return;
+	host->mrq = mrq;
+
+	if (mrq->data) {
+		ret = sh_mmcif_start_data(host, mrq->data);
+		if (ret)
+			goto fail;
 	}
-	if (mrq->stop)
-		sh_mmcif_stop_cmd(host, mrq, mrq->stop);
+
+	sh_mmcif_start_cmd(host, mrq, mrq->cmd);
+	if (!ret)
+		return;
+
+fail:
+	mrq->cmd->error = ret;
 	mmc_request_done(mmc, mrq);
 }
 
@@ -715,67 +857,25 @@ static struct mmc_host_ops sh_mmcif_ops = {
 	.set_ios	= sh_mmcif_set_ios,
 };
 
-static void sh_mmcif_detect(struct mmc_host *mmc)
+#ifdef CONFIG_PM
+static int sh_mmcif_suspend(struct platform_device *dev, pm_message_t state)
 {
-	mmc_detect_change(mmc, 0);
+	struct sh_mmcif_host *host = platform_get_drvdata(dev);
+
+	return mmc_suspend_host(host->mmc);
 }
 
-static irqreturn_t sh_mmcif_intr(int irq, void *dev_id)
+static int sh_mmcif_resume(struct platform_device *dev)
 {
-	struct sh_mmcif_host *host = dev_id;
-	u32 state = 0;
-	int err = 0;
+	struct sh_mmcif_host *host = platform_get_drvdata(dev);
 
-	state = sh_mmcif_readl(host->addr, MMCIF_CE_INT);
-
-	if (state & INT_RBSYE) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
-				~(INT_RBSYE | INT_CRSPE));
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MRBSYE);
-	} else if (state & INT_CRSPE) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~INT_CRSPE);
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MCRSPE);
-	} else if (state & INT_BUFREN) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~INT_BUFREN);
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MBUFREN);
-	} else if (state & INT_BUFWEN) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~INT_BUFWEN);
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MBUFWEN);
-	} else if (state & INT_CMD12DRE) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
-			~(INT_CMD12DRE | INT_CMD12RBE |
-			  INT_CMD12CRE | INT_BUFRE));
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MCMD12DRE);
-	} else if (state & INT_BUFRE) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~INT_BUFRE);
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MBUFRE);
-	} else if (state & INT_DTRANE) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~INT_DTRANE);
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MDTRANE);
-	} else if (state & INT_CMD12RBE) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
-				~(INT_CMD12RBE | INT_CMD12CRE));
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, MASK_MCMD12RBE);
-	} else if (state & INT_ERR_STS) {
-		/* err interrupts */
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~state);
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, state);
-		err = 1;
-	} else {
-		pr_debug("%s: Not support int\n", DRIVER_NAME);
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~state);
-		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, state);
-		err = 1;
-	}
-	if (err) {
-		host->sd_error = 1;
-		pr_debug("%s: int err state = %08x\n", DRIVER_NAME, state);
-	}
-	host->wait_int = 1;
-	wake_up(&host->intr_wait);
-
-	return IRQ_HANDLED;
+	return mmc_resume_host(host->mmc);
 }
+#else
+#define sh_mmcif_suspend NULL
+#define sh_mmcif_resume NULL
+#endif
+
 
 static int __devinit sh_mmcif_probe(struct platform_device *pdev)
 {
@@ -817,7 +917,6 @@ static int __devinit sh_mmcif_probe(struct platform_device *pdev)
 	host		= mmc_priv(mmc);
 	host->mmc	= mmc;
 	host->addr	= reg;
-	host->timeout	= 1000;
 
 	snprintf(clk_name, sizeof(clk_name), "mmc%d", pdev->id);
 	host->hclk = clk_get(&pdev->dev, clk_name);
@@ -829,8 +928,6 @@ static int __devinit sh_mmcif_probe(struct platform_device *pdev)
 	clk_enable(host->hclk);
 	host->clk = clk_get_rate(host->hclk);
 	host->pd = pdev;
-
-	init_waitqueue_head(&host->intr_wait);
 
 	mmc->ops = &sh_mmcif_ops;
 	mmc->f_max = host->clk;
@@ -854,8 +951,9 @@ static int __devinit sh_mmcif_probe(struct platform_device *pdev)
 	mmc->max_seg_size = mmc->max_req_size;
 
 	sh_mmcif_sync_reset(host);
+	sh_mmcif_writel(host->addr, MMCIF_CE_INT_MASK, MASK_ALL);
+
 	platform_set_drvdata(pdev, host);
-	mmc_add_host(mmc);
 
 	ret = request_irq(irq[0], sh_mmcif_intr, 0, "sh_mmc:error", host);
 	if (ret) {
@@ -869,8 +967,12 @@ static int __devinit sh_mmcif_probe(struct platform_device *pdev)
 		goto clean_up2;
 	}
 
-	sh_mmcif_writel(host->addr, MMCIF_CE_INT_MASK, MASK_ALL);
-	sh_mmcif_detect(host->mmc);
+	/* Setup DMA */
+	host->param_tx.slave_id = pd->dma_slave_tx;
+	host->param_rx.slave_id = pd->dma_slave_rx;
+	sh_mmcif_request_dma(host);
+
+	mmc_add_host(mmc);
 
 	pr_info("%s: driver version %s\n", DRIVER_NAME, DRIVER_VERSION);
 	pr_debug("%s: chip ver H'%04x\n", DRIVER_NAME,
@@ -900,6 +1002,7 @@ static int __devexit sh_mmcif_remove(struct platform_device *pdev)
 	if (host->addr)
 		iounmap(host->addr);
 
+	sh_mmcif_release_dma(host);
 	platform_set_drvdata(pdev, NULL);
 	mmc_remove_host(host->mmc);
 
@@ -915,6 +1018,8 @@ static int __devexit sh_mmcif_remove(struct platform_device *pdev)
 static struct platform_driver sh_mmcif_driver = {
 	.probe		= sh_mmcif_probe,
 	.remove		= sh_mmcif_remove,
+	.suspend	= sh_mmcif_suspend,
+	.resume		= sh_mmcif_resume,
 	.driver		= {
 		.name	= DRIVER_NAME,
 	},
