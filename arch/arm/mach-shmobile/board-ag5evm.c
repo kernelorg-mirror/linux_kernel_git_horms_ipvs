@@ -355,6 +355,8 @@ void __init ag5evm_init_irq(void)
 
 	gic_dist_init(0, __io(0xf0001000), 29);
 	gic_cpu_init(0, __io(0xf0000100));
+
+	sh73a0_init_irq();
 }
 
 #define SUBCKCR		0xe6150080
