@@ -22,4 +22,8 @@ extern void sh7372_add_early_devices(void);
 extern void sh7372_add_standard_devices(void);
 extern void sh7372_pinmux_init(void);
 
+extern void sh73a0_add_early_devices(void);
+extern void sh73a0_add_standard_devices(void);
+extern void sh73a0_clock_init(void);
+
 #endif /* __ARCH_MACH_COMMON_H */
