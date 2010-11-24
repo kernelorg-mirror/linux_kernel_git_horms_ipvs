@@ -42,6 +42,7 @@ static const char *r8a66597_ep_name[] = {
 	"ep8", "ep9",
 };
 
+static void init_controller(struct r8a66597 *r8a66597);
 static void disable_controller(struct r8a66597 *r8a66597);
 static void irq_ep0_write(struct r8a66597_ep *ep, struct r8a66597_request *req);
 static void irq_packet_write(struct r8a66597_ep *ep,
@@ -82,8 +83,50 @@ static void disable_pipe_irq(struct r8a66597 *r8a66597, u16 pipenum,
 	r8a66597_write(r8a66597, tmp, INTENB0);
 }
 
+#if defined(CONFIG_ARCH_SH73A0)
+
+#define SRCR3			0xe61580b8
+
+#define USBCR2			0xe605810c
+#define USBCR2_USB_START	0x8000
+#define USBCR2_USB_COR		0x0a00	/* default value */
+#define USBCR2_USB_OFF		0x0080
+#define USBCR2_USB_CNT		0x000a	/* default value */
+#define USBCR2_INIT		(USBCR2_USB_START | USBCR2_USB_COR | \
+				USBCR2_USB_CNT)
+
+static void usb_module_reset(struct r8a66597 *r8a66597)
+{
+	__raw_writel((1 << 22), __io(SRCR3)); /* Reset USBHS */
+	udelay(10);
+	__raw_writel(0, __io(SRCR3));
+}
+
+static int initialize_usb_phy(struct r8a66597 *r8a66597, int init)
+{
+	int i = 0;
+
+	if (__raw_readw(__io(USBCR2)) & USBCR2_USB_OFF) {
+		__raw_writew(USBCR2_INIT, __io(USBCR2));
+		while (__raw_readw(__io(USBCR2)) & USBCR2_USB_OFF) {
+			if (i++ > 100000) {
+				printk(KERN_ERR "%s: timeout\n", __func__);
+				return -ENXIO;
+			}
+			udelay(10);
+		}
+		usb_module_reset(r8a66597);
+		if (init)
+			init_controller(r8a66597);
+	}
+	return 0;
+}
+#endif
+
 static void r8a66597_usb_connect(struct r8a66597 *r8a66597)
 {
+	initialize_usb_phy(r8a66597, 1);
+
 	r8a66597_bset(r8a66597, CTRE, INTENB0);
 	r8a66597_bset(r8a66597, BEMPE | BRDYE, INTENB0);
 
@@ -105,6 +148,10 @@ __acquires(r8a66597->lock)
 
 	disable_controller(r8a66597);
 	INIT_LIST_HEAD(&r8a66597->ep[0].queue);
+
+	/* These are for next connection */
+	init_controller(r8a66597);
+	r8a66597_bset(r8a66597, VBSE, INTENB0);
 }
 
 static inline u16 control_reg_get_pid(struct r8a66597 *r8a66597, u16 pipenum)
@@ -573,9 +620,13 @@ static void init_controller(struct r8a66597 *r8a66597)
 	u16 endian = r8a66597->pdata->endian ? BIGEND : 0;
 
 	if (r8a66597->pdata->on_chip) {
-		r8a66597_bset(r8a66597, 0x04, SYSCFG1);
+		int ret;
+#if defined(CONFIG_MACH_AG5EVM)
+		r8a66597_write(r8a66597, 0x07, SYSCFG1);
+#else
+		r8a66597_write(r8a66597, 0x04, SYSCFG1);
+#endif
 		r8a66597_bset(r8a66597, HSE, SYSCFG0);
-
 		r8a66597_bclr(r8a66597, USBE, SYSCFG0);
 		r8a66597_bclr(r8a66597, DPRPU, SYSCFG0);
 		r8a66597_bset(r8a66597, USBE, SYSCFG0);
@@ -583,8 +634,16 @@ static void init_controller(struct r8a66597 *r8a66597)
 		r8a66597_bset(r8a66597, SCKE, SYSCFG0);
 
 		r8a66597_bset(r8a66597, irq_sense, INTENB1);
-		r8a66597_write(r8a66597, BURST | CPU_ADR_RD_WR,
-				DMA0CFG);
+#if defined(CONFIG_ARCH_SH73A0)
+		__raw_writew(USBCR2_INIT, __io(USBCR2));
+		ret = 0;
+		while (__raw_readw(__io(USBCR2)) & USBCR2_USB_OFF) {
+			if (ret++ > 10000)
+				return;
+			udelay(10);
+		}
+#endif
+
 	} else {
 		r8a66597_bset(r8a66597, vif | endian, PINCFG);
 		r8a66597_bset(r8a66597, HSE, SYSCFG0);		/* High spd */
@@ -1431,6 +1490,7 @@ int usb_gadget_register_driver(struct usb_gadget_driver *driver)
 		goto error;
 	}
 
+	init_controller(r8a66597);
 	retval = driver->bind(&r8a66597->gadget);
 	if (retval) {
 		printk(KERN_ERR "bind to driver error (%d)\n", retval);

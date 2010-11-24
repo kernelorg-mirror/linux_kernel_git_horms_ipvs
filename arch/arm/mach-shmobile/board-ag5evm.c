@@ -29,6 +29,7 @@
 #include <linux/clk.h>
 #include <linux/dma-mapping.h>
 #include <linux/serial_sci.h>
+#include <linux/usb/r8a66597.h>
 #include <linux/smsc911x.h>
 #include <linux/gpio.h>
 #include <linux/input.h>
@@ -46,6 +47,45 @@
 #include <asm/hardware/gic.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/traps.h>
+
+static struct r8a66597_platdata usb_data = {
+	.on_chip	= 1,
+};
+
+static struct resource usb_resources[] = {
+	[0] = {
+		.name	= "USBHS",
+		.start	= 0xe6890000,
+		.end	= 0xe68900e6 - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= gic_spi(62) /* USBHS_USHI0 */,
+		.flags	= IORESOURCE_IRQ,
+	},
+	[2] = {
+		.name	= "USBHS-DMA",
+		.start	= 0xe68a0000,
+		.end	= 0xe68a0064 - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	[3] = {
+		.start	= gic_spi(61) /* USBHS_DMAC1 */,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device usb_func_device = {
+	.name	= "r8a66597_udc",
+	.id	= 0,
+	.dev = {
+		.dma_mask		= NULL,         /*  not use dma */
+		.coherent_dma_mask	= 0xffffffff,
+		.platform_data		= &usb_data,
+	},
+	.num_resources	= ARRAY_SIZE(usb_resources),
+	.resource	= usb_resources,
+};
 
 static struct resource smsc9220_resources[] = {
 	[0] = {
@@ -137,6 +177,7 @@ static struct platform_device sdhi0_device = {
 };
 
 static struct platform_device *ag5evm_devices[] __initdata = {
+	&usb_func_device,
 	&eth_device,
 	&keysc_device,
 	&sdhi0_device,
@@ -238,6 +279,12 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_PORT237_I2C_SCL2, NULL);
 	gpio_request(GPIO_FN_PORT248_I2C_SCL3, NULL);
 	gpio_request(GPIO_FN_PORT249_I2C_SDA3, NULL);
+
+	/* wake usb phy on */
+	gpio_request(GPIO_PORT24, NULL);
+	gpio_direction_output(GPIO_PORT24, 0);
+	udelay(10);
+	gpio_set_value(GPIO_PORT24, 1);
 
 	/* enable SMSC911X */
 	gpio_request(GPIO_PORT144, NULL); /* PINTA2 */
