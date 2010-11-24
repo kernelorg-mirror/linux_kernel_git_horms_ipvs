@@ -149,6 +149,17 @@ tmio_mmc_start_command(struct tmio_mmc_host *host, struct mmc_command *cmd)
 
 	enable_mmc_irqs(host, TMIO_MASK_CMD);
 
+	/* SD Bus busy will be end in 8 * SD clocks period at most.     *
+	 * Low clock = 96MHz/512 --> T=5.33us --> *8 = 42.6us           */
+	{
+		int timeout = 0;
+		while ((sd_ctrl_read16(host, 0x1e) & (1<<13)) == 0) {
+			if (timeout++ > 43)
+				break;
+			udelay(1);
+		}
+	}
+
 	/* Fire off the command */
 	sd_ctrl_write32(host, CTL_ARG_REG, cmd->arg);
 	sd_ctrl_write16(host, CTL_SD_CMD, c);

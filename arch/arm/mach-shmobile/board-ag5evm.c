@@ -33,6 +33,8 @@
 #include <linux/gpio.h>
 #include <linux/input.h>
 #include <linux/input/sh_keysc.h>
+#include <linux/mmc/host.h>
+#include <linux/mfd/sh_mobile_sdhi.h>
 
 #include <mach/hardware.h>
 #include <mach/sh73a0.h>
@@ -114,9 +116,30 @@ static struct platform_device keysc_device = {
 	},
 };
 
+static struct resource sdhi0_resources[] = {
+	[0] = {
+		.name	= "SDHI0",
+		.start	= 0xee100000,
+		.end	= 0xee100fff,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= gic_spi(83),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device sdhi0_device = {
+	.name		= "sh_mobile_sdhi",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(sdhi0_resources),
+	.resource	= sdhi0_resources,
+};
+
 static struct platform_device *ag5evm_devices[] __initdata = {
 	&eth_device,
 	&keysc_device,
+	&sdhi0_device,
 };
 
 static struct map_desc ag5evm_io_desc[] __initdata = {
@@ -138,6 +161,12 @@ static void __init ag5evm_map_io(void)
 	/* setup early devices and console here as well */
 	sh73a0_add_early_devices();
 	shmobile_setup_console();
+}
+
+static irqreturn_t sdhi0_mpx_interrupt(int irq, void *dev_id)
+{
+	generic_handle_irq(gic_spi(83));
+	return IRQ_HANDLED;
 }
 
 #define PINTC_ADDR	0xe6900000
@@ -172,6 +201,16 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_SCIFA2_RXD1, NULL);
 	gpio_request(GPIO_FN_SCIFA2_RTS1_, NULL);
 	gpio_request(GPIO_FN_SCIFA2_CTS1_, NULL);
+
+	/* enable SDHI0 */
+	gpio_request(GPIO_FN_SDHICD0, NULL);
+	gpio_request(GPIO_FN_SDHIWP0, NULL);
+	gpio_request(GPIO_FN_SDHICMD0, NULL);
+	gpio_request(GPIO_FN_SDHICLK0, NULL);
+	gpio_request(GPIO_FN_SDHID0_3, NULL);
+	gpio_request(GPIO_FN_SDHID0_2, NULL);
+	gpio_request(GPIO_FN_SDHID0_1, NULL);
+	gpio_request(GPIO_FN_SDHID0_0, NULL);
 
 	/* enable KEYSC */
 	clk_enable(clk_get(NULL, "keysc0"));
@@ -210,6 +249,11 @@ static void __init ag5evm_init(void)
 	/* Shared attribute override enable, 64K*8way */
 	l2x0_init(__io(0xf0100000), 0x00460000, 0xc2000fff);
 #endif
+	/* multiplex irqs to sdhi0 */
+	if (request_irq(gic_spi(84), sdhi0_mpx_interrupt, IRQF_DISABLED,
+		"mpx", 0))
+		pr_warning("Failed to get multiplex irq.");
+
 	sh73a0_add_standard_devices();
 	platform_add_devices(ag5evm_devices, ARRAY_SIZE(ag5evm_devices));
 }
