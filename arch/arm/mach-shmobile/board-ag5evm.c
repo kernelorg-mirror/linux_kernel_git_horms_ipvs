@@ -26,6 +26,7 @@
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/clk.h>
 #include <linux/dma-mapping.h>
 #include <linux/serial_sci.h>
 #include <linux/smsc911x.h>
@@ -153,8 +154,17 @@ void __init ag5evm_init_irq(void)
 	gic_cpu_init(0, __io(0xf0000100));
 }
 
+#define SUBCKCR		0xe6150080
+
 static void __init ag5evm_init(void)
 {
+	struct clk *sub_clk = clk_get(NULL, "sub_clk");
+	struct clk *extal2_clk = clk_get(NULL, "extal2");
+	clk_set_parent(sub_clk, extal2_clk);
+
+	__raw_writel(__raw_readl(SUBCKCR) & ~(1<<9), SUBCKCR);
+	__raw_writel(__raw_readl(SUBCKCR) | (1<<7), SUBCKCR);
+
 	sh73a0_pinmux_init();
 
 	/* enable SCIFA2 */
@@ -164,6 +174,7 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_SCIFA2_CTS1_, NULL);
 
 	/* enable KEYSC */
+	clk_enable(clk_get(NULL, "keysc0"));
 	gpio_request(GPIO_FN_KEYIN0, NULL);
 	gpio_request(GPIO_FN_KEYIN1, NULL);
 	gpio_request(GPIO_FN_KEYIN2, NULL);
