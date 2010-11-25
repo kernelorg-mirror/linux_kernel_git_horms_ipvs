@@ -33,6 +33,7 @@ static const struct {
 	[SH_KEYSC_MODE_4] = { 3, 6, 6 },
 	[SH_KEYSC_MODE_5] = { 4, 6, 7 },
 	[SH_KEYSC_MODE_6] = { 5, 7, 7 },
+	[SH_KEYSC_MODE_6_8x8] = { 5, 8, 8 },
 };
 
 struct sh_keysc_priv {

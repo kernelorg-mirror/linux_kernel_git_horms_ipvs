@@ -74,19 +74,19 @@ static struct platform_device eth_device = {
 };
 
 static struct sh_keysc_info keysc_platdata = {
-	.mode		= SH_KEYSC_MODE_6,
+	.mode		= SH_KEYSC_MODE_6_8x8,
 	.scan_timing	= 3,
 	.delay		= 100,
 	.keycodes	= {
-		KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G,
-		KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M, KEY_N,
-		KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T, KEY_U,
-		KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z, KEY_HOME, KEY_SLEEP,
+		KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, 0,
+		KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M, KEY_N, 0,
+		KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T, KEY_U, 0,
+		KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z, KEY_HOME, KEY_SLEEP, 0,
 		KEY_SPACE, KEY_9, KEY_6, KEY_3, KEY_WAKEUP, KEY_RIGHT, \
-		KEY_COFFEE,
-		KEY_0, KEY_8, KEY_5, KEY_2, KEY_DOWN, KEY_ENTER, KEY_UP,
+		KEY_COFFEE, 0,
+		KEY_0, KEY_8, KEY_5, KEY_2, KEY_DOWN, KEY_ENTER, KEY_UP, 0,
 		KEY_KPASTERISK, KEY_7, KEY_4, KEY_1, KEY_STOP, KEY_LEFT, \
-		KEY_COMPUTER,
+		KEY_COMPUTER, 0,
 	},
 };
 
