@@ -62,6 +62,14 @@ config SND_FSI_DA7210
 	  This option enables generic sound support for the
 	  FSI - DA7210 unit
 
+config SND_FSI_KODOH
+	bool "FSI-KODOH sound support"
+	depends on SND_SOC_SH4_FSI
+	select SND_SOC_KODOH
+	help
+	  This option enables generic sound support for the
+	  FSI - Kodoh unit
+
 config SND_SIU_MIGOR
 	tristate "SIU sound support on Migo-R"
 	depends on SH_MIGOR
