@@ -39,8 +39,8 @@
 #define DIDT		0x0020
 #define DODT		0x0024
 #define MUTE_ST		0x0028
-#define REG_END		MUTE_ST
-
+#define OUT_DMAC	0x002C
+#define REG_END		OUT_DMAC
 
 #define CPU_INT_ST	0x01F4
 #define CPU_IEMSK	0x01F8
@@ -52,8 +52,10 @@
 #define CLK_RST		0x0210
 #define SOFT_RST	0x0214
 #define FIFO_SZ		0x0218
+#define CLK_SEL		0x0220
+#define HPB_SRST	0x022C
 #define MREG_START	CPU_INT_ST
-#define MREG_END	FIFO_SZ
+#define MREG_END	CLK_SEL
 
 /* DO_FMT */
 /* DI_FMT */
@@ -662,6 +664,7 @@ static int fsi_dai_startup(struct snd_pcm_substream *substream,
 			   struct snd_soc_dai *dai)
 {
 	struct fsi_priv *fsi = fsi_get_priv(substream);
+	struct fsi_master *master = fsi_get_master(fsi);
 	const char *msg;
 	u32 flags = fsi_get_info_flags(fsi);
 	u32 fmt;
@@ -672,6 +675,14 @@ static int fsi_dai_startup(struct snd_pcm_substream *substream,
 	int ret = 0;
 
 	pm_runtime_get_sync(dai->dev);
+
+	/* change clock to HPB */
+	fsi_master_mask_set(master, HPB_SRST, (1 << 16), 0x0);
+	udelay(10);
+	fsi_master_mask_set(master, HPB_SRST, (1 << 20), 0x0);
+	fsi_master_mask_set(master, HPB_SRST, (1 << 20), (1 << 20));
+	fsi_master_write(master, CLK_SEL, 0);
+	fsi_reg_write(fsi, OUT_DMAC, (0x1 << 4));
 
 	/* CKG1 */
 	data = is_play ? (1 << 0) : (1 << 4);
