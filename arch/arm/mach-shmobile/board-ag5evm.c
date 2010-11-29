@@ -40,6 +40,7 @@
 #include <linux/mmc/host.h>
 #include <linux/mmc/sh_mmcif.h>
 #include <linux/mfd/sh_mobile_sdhi.h>
+#include <linux/usb/android_composite.h>
 
 #include <mach/hardware.h>
 #include <mach/sh73a0.h>
@@ -307,6 +308,58 @@ static struct platform_device sh_mmcif_device = {
 	.resource	= sh_mmcif_resources,
 };
 
+/* Android USB gadget  */
+static char *usb_functions_ums[] = { "usb_mass_storage" };
+static char *usb_functions_ums_adb[] = { "usb_mass_storage", "adb" };
+
+static struct android_usb_product usb_products[] = {
+	{
+		.product_id	= 0x0001,
+		.num_functions	= ARRAY_SIZE(usb_functions_ums),
+		.functions	= usb_functions_ums,
+	},
+	{
+		.product_id	= 0x0002,
+		.num_functions	= ARRAY_SIZE(usb_functions_ums_adb),
+		.functions	= usb_functions_ums_adb,
+	},
+};
+
+static struct android_usb_platform_data android_usb_pdata = {
+	.vendor_id	= 0x18d1,
+	.product_id	= 0x0001,
+	.version	= 0x0100,
+	.product_name		= "AG5EVM",
+	.manufacturer_name	= "Renesas",
+	.num_products = ARRAY_SIZE(usb_products),
+	.products = usb_products,
+	.num_functions = ARRAY_SIZE(usb_functions_ums_adb),
+	.functions = usb_functions_ums_adb,
+};
+
+static struct platform_device android_usb_device = {
+	.name	= "android_usb",
+	.id		= -1,
+	.dev		= {
+		.platform_data	= &android_usb_pdata,
+	},
+};
+
+static struct usb_mass_storage_platform_data mass_storage_pdata = {
+	.nluns		= 1,
+	.vendor		= "Renesas",
+	.product	= "AG5EVM",
+	.release	= 0x0100,
+};
+
+static struct platform_device usb_mass_storage_device = {
+	.name	= "usb_mass_storage",
+	.id	= -1,
+	.dev	= {
+		.platform_data = &mass_storage_pdata,
+	},
+};
+
 static struct platform_device *ag5evm_devices[] __initdata = {
 	&usb_func_device,
 	&eth_device,
@@ -314,6 +367,9 @@ static struct platform_device *ag5evm_devices[] __initdata = {
 	&sdhi0_device,
 	&fsi_device,
 	&sh_mmcif_device,
+
+	&usb_mass_storage_device,
+	&android_usb_device,
 };
 
 static struct map_desc ag5evm_io_desc[] __initdata = {
