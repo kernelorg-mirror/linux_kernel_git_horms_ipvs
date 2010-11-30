@@ -27,7 +27,10 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/clk.h>
+#include <linux/sh_clk.h>
 #include <linux/dma-mapping.h>
+#include <linux/i2c.h>
+
 #include <linux/serial_sci.h>
 #include <linux/usb/r8a66597.h>
 #include <linux/smsc911x.h>
@@ -36,8 +39,6 @@
 #include <linux/input/sh_keysc.h>
 #include <linux/mmc/host.h>
 #include <linux/mfd/sh_mobile_sdhi.h>
-
-#include <sound/sh_fsi.h>
 
 #include <mach/hardware.h>
 #include <mach/sh73a0.h>
@@ -49,6 +50,8 @@
 #include <asm/hardware/gic.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/traps.h>
+
+#include <sound/sh_fsi.h>
 
 static struct r8a66597_platdata usb_data = {
 	.on_chip	= 1,
@@ -180,6 +183,42 @@ static struct platform_device sdhi0_device = {
 };
 
 /* FSI A */
+/*
+ * FSI-A use external clock which came from da7210.
+ * So, we should change parent of fsi
+ */
+#define FSIACKCR	0xE6150018
+static void fsiack_init(struct clk *clk)
+{
+	u32 status;
+	void __iomem *reg;
+
+	reg = ioremap_nocache(FSIACKCR, 4);
+	if (!reg) {
+		pr_err("ioremap failed for FSI A\n");
+		return;
+	}
+
+	status = __raw_readl(reg);
+
+	/* use external clock */
+	status &= ~0x000000ff;
+	status |= 0x00000080;
+
+	__raw_writel(status, reg);
+
+	iounmap(reg);
+}
+
+static struct clk_ops fsiack_clk_ops = {
+	.init = fsiack_init,
+};
+
+static struct clk fsiack_clk = {
+	.ops		= &fsiack_clk_ops,
+	.rate		= 0, /* unknown */
+};
+
 static struct sh_fsi_platform_info fsi_info = {
 	.porta_flags = SH_FSI_OUT_SLAVE_MODE	|
 		       SH_FSI_IN_SLAVE_MODE	|
@@ -207,6 +246,12 @@ static struct platform_device fsi_device = {
 	.resource	= fsi_resources,
 	.dev	= {
 		.platform_data	= &fsi_info,
+	},
+};
+
+static struct i2c_board_info i2c2_devices[] = {
+	{
+		I2C_BOARD_INFO("kodoh", 0x63),
 	},
 };
 
@@ -265,6 +310,7 @@ static void __init ag5evm_init(void)
 {
 	struct clk *sub_clk = clk_get(NULL, "sub_clk");
 	struct clk *extal2_clk = clk_get(NULL, "extal2");
+	struct clk *fsia_clk = clk_get(NULL, "fsia_clk");
 	clk_set_parent(sub_clk, extal2_clk);
 
 	__raw_writel(__raw_readl(SUBCKCR) & ~(1<<9), SUBCKCR);
@@ -328,10 +374,14 @@ static void __init ag5evm_init(void)
 	gpio_direction_output(GPIO_PORT145, 1);
 
 	/* FSI A */
+	clk_register(&fsiack_clk);
+	clk_set_parent(fsia_clk, &fsiack_clk);
+	clk_put(fsia_clk);
+	clk_enable(clk_get(NULL, "fsi"));
 	gpio_request(GPIO_FN_FSIACK, NULL);
-	gpio_request(GPIO_FN_FSIAILR, NULL);
-	gpio_request(GPIO_FN_FSIAIBT, NULL);
-	gpio_request(GPIO_FN_FSIAISLD, NULL);
+	gpio_request(GPIO_FN_FSIAILR_PU, NULL);
+	gpio_request(GPIO_FN_FSIAIBT_PU, NULL);
+	gpio_request(GPIO_FN_FSIAISLD_PU, NULL);
 	gpio_request(GPIO_FN_FSIAOSLD, NULL);
 
 #ifdef CONFIG_CACHE_L2X0
@@ -344,6 +394,8 @@ static void __init ag5evm_init(void)
 		pr_warning("Failed to get multiplex irq.");
 
 	sh73a0_add_standard_devices();
+
+	i2c_register_board_info(2, i2c2_devices, ARRAY_SIZE(i2c2_devices));
 	platform_add_devices(ag5evm_devices, ARRAY_SIZE(ag5evm_devices));
 }
 
