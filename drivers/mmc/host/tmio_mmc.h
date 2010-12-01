@@ -94,6 +94,8 @@ struct tmio_mmc_host {
 	struct mmc_data         *data;
 	struct mmc_host         *mmc;
 	int                     irq;
+	int                     connect;
+	struct tmio_mmc_data    *pdata;
 
 	/* Callbacks for clock / power control */
 	void (*set_pwr)(struct platform_device *host, int state);
@@ -115,6 +117,7 @@ struct tmio_mmc_host {
 	struct dma_async_tx_descriptor *desc;
 	unsigned int            dma_sglen;
 	dma_cookie_t		cookie;
+	struct work_struct	detect_wq;
 #endif
 };
 

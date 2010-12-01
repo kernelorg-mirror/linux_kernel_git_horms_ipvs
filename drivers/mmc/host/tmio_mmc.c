@@ -377,6 +377,13 @@ static irqreturn_t tmio_mmc_irq(int irq, void *devid)
 		if (ireg & (TMIO_STAT_CARD_INSERT | TMIO_STAT_CARD_REMOVE)) {
 			ack_mmc_irqs(host, TMIO_STAT_CARD_INSERT |
 				TMIO_STAT_CARD_REMOVE);
+			host->connect = status & TMIO_STAT_SIGSTATE ? 1 : 0;
+
+#ifdef CONFIG_TMIO_MMC_DMA
+			if (host->mrq && host->mrq->data)
+				schedule_work(&host->detect_wq);
+			else
+#endif
 			mmc_detect_change(host->mmc, msecs_to_jiffies(100));
 		}
 
@@ -584,6 +591,8 @@ static void tmio_tasklet_fn(unsigned long arg)
 	tmio_mmc_do_data_irq(host);
 }
 
+static void tmio_detect_work(struct work_struct *work);
+
 /* It might be necessary to make filter MFD specific */
 static bool tmio_mmc_filter(struct dma_chan *chan, void *arg)
 {
@@ -647,6 +656,25 @@ static void tmio_mmc_release_dma(struct tmio_mmc_host *host)
 	host->cookie = -EINVAL;
 	host->desc = NULL;
 }
+
+static void tmio_detect_work(struct work_struct *work)
+{
+	struct tmio_mmc_host *host =
+			container_of(work, struct tmio_mmc_host, detect_wq);
+
+	if (host->mrq && host->mrq->data) {
+		reset(host);
+		host->mrq->cmd->error = -ENOMEDIUM;
+		host->mrq->data->error = -ENOMEDIUM;
+		tmio_mmc_finish_request(host);
+
+		tmio_mmc_release_dma(host);
+		tmio_mmc_request_dma(host, host->pdata);
+	}
+
+	mmc_detect_change(host->mmc, msecs_to_jiffies(100));
+}
+
 #else
 static int tmio_mmc_start_dma(struct tmio_mmc_host *host,
 			       struct mmc_data *data)
@@ -699,6 +727,11 @@ static void tmio_mmc_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		pr_debug("request not null\n");
 
 	host->mrq = mrq;
+	if (!host->connect) {
+		mrq->cmd->error = -ENOMEDIUM;
+		tmio_mmc_finish_request(host);
+		return;
+	}
 
 	if (mrq->data) {
 		ret = tmio_mmc_start_data(host, mrq->data);
@@ -821,6 +854,7 @@ static int __devinit tmio_mmc_probe(struct platform_device *dev)
 	struct mmc_host *mmc;
 	int ret = -EINVAL;
 	u32 irq_mask = TMIO_MASK_CMD;
+	u32 status;
 
 	if (dev->num_resources != 2)
 		goto out;
@@ -842,6 +876,7 @@ static int __devinit tmio_mmc_probe(struct platform_device *dev)
 	host = mmc_priv(mmc);
 	host->mmc = mmc;
 	host->pdev = dev;
+	host->pdata = pdata;
 	platform_set_drvdata(dev, mmc);
 
 	host->set_pwr = pdata->set_pwr;
@@ -896,6 +931,13 @@ static int __devinit tmio_mmc_probe(struct platform_device *dev)
 
 	/* See if we also get DMA */
 	tmio_mmc_request_dma(host, pdata);
+
+	status = sd_ctrl_read32(host, CTL_STATUS);
+	host->connect = status & TMIO_STAT_SIGSTATE ? 1 : 0;
+
+#ifdef CONFIG_TMIO_MMC_DMA
+	INIT_WORK(&host->detect_wq, tmio_detect_work);
+#endif
 
 	mmc_add_host(mmc);
 
