@@ -260,8 +260,8 @@ struct clk div4_clks[DIV4_NR] = {
 	[DIV4_ZX] = DIV4(FRQCRB, 12, 0x0dff, 0),
 	[DIV4_ZS] = DIV4(FRQCRB, 8, 0x0dff, 0),
 	[DIV4_HP] = DIV4(FRQCRB, 4, 0x0dff, 0),
-	[DIV4_ZB31] = DIV4(FRQCRC, 8, 0x097f, 0),
-	[DIV4_ZB30] = DIV4(FRQCRC, 0, 0x097f, 0),
+	[DIV4_ZB31] = SH_CLK_DIV4(&pllc3_clk, FRQCRD, 8, 0x097f, 0),
+	[DIV4_ZB30] = SH_CLK_DIV4(&pllc3_clk, FRQCRD, 0, 0x097f, 0),
 };
 
 enum { DIV6_ZB, DIV6_SD0, DIV6_SD1, DIV6_SD2, DIV6_FL,
