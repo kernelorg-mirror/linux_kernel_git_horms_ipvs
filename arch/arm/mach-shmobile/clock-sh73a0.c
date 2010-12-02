@@ -134,12 +134,21 @@ static struct clk main_div2_clk = {
 	.parent	= &main_clk,
 };
 
+/*
+ * PLL{0,1,2,3}CR recalc.
+ * Using .enalbe_reg for PLL{0,1,2,3}CR but PLLECR.
+ *
+ * PLL0CR.THRUCKSEL should be handled by switching the parent.
+ * There is no .CFG on PLL{0,3}CR.24 but is 0 according to the HW manual.
+ * This code utilizes it.
+ */
 static unsigned long pllc_recalc(struct clk *clk)
 {
 	unsigned long mult = 1;
+	unsigned int reg = __raw_readl(clk->enable_reg);
 
 	if (__raw_readl(PLLECR) & (1 << clk->enable_bit))
-		mult = (((__raw_readl(clk->enable_reg) >> 24) & 0x3f) + 1) * 2;
+		mult = (((reg >> 24) & 0x3f) + 1) * (((reg >> 20) & 1) + 1);
 
 	return clk->parent->rate * mult;
 }
