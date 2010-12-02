@@ -335,6 +335,30 @@ static struct clk cp_clk = {
 	.parent	= &main_div2_clk,
 };
 
+static struct clk zb1_clk = {
+	.ops	= &div_clk_ops,
+	.priv	= (void *)2,
+	.parent	= &div6_clks[DIV6_ZB],
+};
+
+/*
+ * HW manual says DDR div.(for zb3,3s) does always 1/2 div,
+ * explicitly when ZB3xSEL=0, implicily by ZB3xFC table otherwise.
+ */
+static struct clk zb3_clk = {
+	.ops	= &div_clk_ops,
+	.priv	= (void *)2,
+	.parent	= &pllc3_clk,
+	/* or &div4_clks[DIV4_ZB30] according to FRQCRD.ZB30SEL */
+};
+
+static struct clk zb3s_clk = {
+	.ops	= &div_clk_ops,
+	.priv	= (void *)2,
+	.parent	= &pllc3_clk,
+	/* or &div4_clks[DIV4_ZB31] according to FRQCRD.ZB31SEL */
+};
+
 struct clk *sub_clks[] = {
 	&sub_clk,
 	&spua_clk,
@@ -342,6 +366,9 @@ struct clk *sub_clks[] = {
 	&fsia_clk,
 	&fsib_clk,
 	&cp_clk,
+	&zb1_clk,
+	&zb3_clk,
+	&zb3s_clk,
 };
 
 enum {
@@ -639,9 +666,12 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("hp_clk", &div4_clks[DIV4_HP]),
 	CLKDEV_CON_ID("zb31_clk", &div4_clks[DIV4_ZB31]),
 	CLKDEV_CON_ID("zb30_clk", &div4_clks[DIV4_ZB30]),
+	CLKDEV_CON_ID("zb3_clk", &zb3_clk),
+	CLKDEV_CON_ID("zb3s_clk", &zb3s_clk),
 
 	/* DIV6 clocks */
 	CLKDEV_CON_ID("zb_clk", &div6_clks[DIV6_ZB]),
+	CLKDEV_CON_ID("zb1_clk", &zb1_clk),
 	CLKDEV_CON_ID("sd0_clk", &div6_clks[DIV6_SD0]),
 	CLKDEV_CON_ID("sd1_clk", &div6_clks[DIV6_SD1]),
 	CLKDEV_CON_ID("sd2_clk", &div6_clks[DIV6_SD2]),
