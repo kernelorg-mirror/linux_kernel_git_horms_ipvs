@@ -27,7 +27,6 @@
 /* SH73A0 registers */
 #define FRQCRA		0xe6150000
 #define FRQCRB		0xe6150004
-#define FRQCRC		0xe61500e0
 #define FRQCRD		0xe61500e4
 #define VCLKCR1		0xe6150008
 #define VCLKCR2		0xe615000c
@@ -251,22 +250,22 @@ enum { DIV4_I, DIV4_ZG, DIV4_M3, DIV4_B, DIV4_M1, DIV4_M2,
        DIV4_ZB31, DIV4_ZB30,
        DIV4_NR };
 
-#define DIV4(_reg, _bit, _mask, _flags) \
-  SH_CLK_DIV4(&pllc1_clk, _reg, _bit, _mask, _flags)
-
 struct clk div4_clks[DIV4_NR] = {
-	[DIV4_I] = DIV4(FRQCRA, 20, 0x0dff, CLK_ENABLE_ON_INIT),
+	[DIV4_I] = SH_CLK_DIV4(&pllc1_clk, FRQCRA, 20, 0x0dff,
+		CLK_ENABLE_ON_INIT),
 	[DIV4_ZG] = SH_CLK_DIV4(&pllc0_clk, FRQCRA, 16, 0x097f, 0),
-	[DIV4_M3] = DIV4(FRQCRA, 12, 0x1dff, 0),
-	[DIV4_B] = DIV4(FRQCRA, 8, 0x0dff, CLK_ENABLE_ON_INIT),
-	[DIV4_M1] = DIV4(FRQCRA, 4, 0x1dff, CLK_ENABLE_ON_INIT),
-	[DIV4_M2] = DIV4(FRQCRA, 0, 0x1dff, 0),
+	[DIV4_M3] = SH_CLK_DIV4(&pllc1_clk, FRQCRA, 12, 0x1dff, 0),
+	[DIV4_B] = SH_CLK_DIV4(&pllc1_clk, FRQCRA, 8, 0x0dff,
+		CLK_ENABLE_ON_INIT),
+	[DIV4_M1] = SH_CLK_DIV4(&pllc1_clk, FRQCRA, 4, 0x1dff,
+		CLK_ENABLE_ON_INIT),
+	[DIV4_M2] = SH_CLK_DIV4(&pllc1_clk, FRQCRA, 0, 0x1dff, 0),
 	[DIV4_Z] = SH_CLK_DIV4(&pllc0_clk, FRQCRB, 24, 0x097f, 0),
-	[DIV4_ZTR] = DIV4(FRQCRB, 20, 0x0dff, 0),
-	[DIV4_ZT] = DIV4(FRQCRB, 16, 0x0dff, 0),
-	[DIV4_ZX] = DIV4(FRQCRB, 12, 0x0dff, 0),
-	[DIV4_ZS] = DIV4(FRQCRB, 8, 0x0dff, 0),
-	[DIV4_HP] = DIV4(FRQCRB, 4, 0x0dff, 0),
+	[DIV4_ZTR] = SH_CLK_DIV4(&pllc1_clk, FRQCRB, 20, 0x0dff, 0),
+	[DIV4_ZT] = SH_CLK_DIV4(&pllc1_clk, FRQCRB, 16, 0x0dff, 0),
+	[DIV4_ZX] = SH_CLK_DIV4(&pllc1_clk, FRQCRB, 12, 0x0dff, 0),
+	[DIV4_ZS] = SH_CLK_DIV4(&pllc1_clk, FRQCRB, 8, 0x0dff, 0),
+	[DIV4_HP] = SH_CLK_DIV4(&pllc1_clk, FRQCRB, 4, 0x0dff, 0),
 	[DIV4_ZB31] = SH_CLK_DIV4(&pllc3_clk, FRQCRD, 8, 0x097f, 0),
 	[DIV4_ZB30] = SH_CLK_DIV4(&pllc3_clk, FRQCRD, 0, 0x097f, 0),
 };
@@ -661,12 +660,9 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("hp_clk", &div4_clks[DIV4_HP]),
 	CLKDEV_CON_ID("zb31_clk", &div4_clks[DIV4_ZB31]),
 	CLKDEV_CON_ID("zb30_clk", &div4_clks[DIV4_ZB30]),
-	CLKDEV_CON_ID("zb3_clk", &zb3_clk),
-	CLKDEV_CON_ID("zb3s_clk", &zb3s_clk),
 
 	/* DIV6 clocks */
 	CLKDEV_CON_ID("zb_clk", &div6_clks[DIV6_ZB]),
-	CLKDEV_CON_ID("zb1_clk", &zb1_clk),
 	CLKDEV_CON_ID("sd0_clk", &div6_clks[DIV6_SD0]),
 	CLKDEV_CON_ID("sd1_clk", &div6_clks[DIV6_SD1]),
 	CLKDEV_CON_ID("sd2_clk", &div6_clks[DIV6_SD2]),
@@ -674,11 +670,6 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("vck1_clk", &div6_clks[DIV6_VCK1]),
 	CLKDEV_CON_ID("vck2_clk", &div6_clks[DIV6_VCK2]),
 	CLKDEV_CON_ID("vck3_clk", &div6_clks[DIV6_VCK3]),
-	CLKDEV_CON_ID("fsia_clk", &fsia_clk),
-	CLKDEV_CON_ID("fsib_clk", &fsib_clk),
-	CLKDEV_CON_ID("sub_clk", &sub_clk),
-	CLKDEV_CON_ID("spua_clk", &spua_clk),
-	CLKDEV_CON_ID("spuv_clk", &spuv_clk),
 	CLKDEV_CON_ID("msu_clk", &div6_clks[DIV6_MSU]),
 	CLKDEV_CON_ID("hsi_clk", &div6_clks[DIV6_HSI]),
 	CLKDEV_CON_ID("mf1_clk", &div6_clks[DIV6_MF1]),
@@ -686,6 +677,16 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("dsit_clk", &div6_clks[DIV6_DSIT]),
 	CLKDEV_CON_ID("dsi0p_clk", &div6_clks[DIV6_DSI0P]),
 	CLKDEV_CON_ID("dsi1p_clk", &div6_clks[DIV6_DSI1P]),
+
+	/* sub clocks */
+	CLKDEV_CON_ID("zb3_clk", &zb3_clk),
+	CLKDEV_CON_ID("zb3s_clk", &zb3s_clk),
+	CLKDEV_CON_ID("zb1_clk", &zb1_clk),
+	CLKDEV_CON_ID("fsia_clk", &fsia_clk),
+	CLKDEV_CON_ID("fsib_clk", &fsib_clk),
+	CLKDEV_CON_ID("sub_clk", &sub_clk),
+	CLKDEV_CON_ID("spua_clk", &spua_clk),
+	CLKDEV_CON_ID("spuv_clk", &spuv_clk),
 
 	/* MSTP32 clocks */
 	CLKDEV_CON_ID("usb0_dmac", &mstp_clks[MSTP214]),
