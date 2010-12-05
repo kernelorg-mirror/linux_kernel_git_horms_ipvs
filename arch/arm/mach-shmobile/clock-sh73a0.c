@@ -55,8 +55,6 @@
 #define DSITCKCR	0xe6150060
 #define DSI0PCKCR	0xe6150064
 #define DSI1PCKCR	0xe6150068
-#define DSI0PHYCR	0xe615006c
-#define DSI1PHYCR	0xe6150070
 
 #define PLLECR		0xe61500d0
 #define PLL0CR		0xe61500d8
@@ -277,7 +275,6 @@ enum { DIV6_ZB, DIV6_SD0, DIV6_SD1, DIV6_SD2, DIV6_FL,
        DIV6_VCK1, DIV6_VCK2, DIV6_VCK3, DIV6_FSIA, DIV6_FSIB,
        DIV6_SUB, DIV6_SPUA, DIV6_SPUV, DIV6_MSU, DIV6_HSI,
        DIV6_MF1, DIV6_MF2, DIV6_DSIT, DIV6_DSI0P, DIV6_DSI1P,
-       DIV6_DSI0PHY, DIV6_DSI1PHY,
        DIV6_NR };
 
 struct clk div6_clks[] = {
@@ -301,8 +298,6 @@ struct clk div6_clks[] = {
 	[DIV6_DSIT] = SH_CLK_DIV6(&pllc1_div2_clk, DSITCKCR, 0),
 	[DIV6_DSI0P] = SH_CLK_DIV6(&pllc1_div2_clk, DSI0PCKCR, 0),
 	[DIV6_DSI1P] = SH_CLK_DIV6(&pllc1_div2_clk, DSI1PCKCR, 0),
-	[DIV6_DSI0PHY] = SH_CLK_DIV6(&pllc1_div2_clk, DSI0PHYCR, 0),
-	[DIV6_DSI1PHY] = SH_CLK_DIV6(&pllc1_div2_clk, DSI1PHYCR, 0),
 };
 
 static struct clk sub_clk = {
@@ -691,8 +686,6 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("dsit_clk", &div6_clks[DIV6_DSIT]),
 	CLKDEV_CON_ID("dsi0p_clk", &div6_clks[DIV6_DSI0P]),
 	CLKDEV_CON_ID("dsi1p_clk", &div6_clks[DIV6_DSI1P]),
-	CLKDEV_CON_ID("dsi0phy_clk", &div6_clks[DIV6_DSI0PHY]),
-	CLKDEV_CON_ID("dsi1phy_clk", &div6_clks[DIV6_DSI1PHY]),
 
 	/* MSTP32 clocks */
 	CLKDEV_CON_ID("usb0_dmac", &mstp_clks[MSTP214]),
