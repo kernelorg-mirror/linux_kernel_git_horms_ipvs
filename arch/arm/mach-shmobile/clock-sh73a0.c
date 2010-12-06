@@ -236,7 +236,7 @@ static void div4_kick(struct clk *clk)
 }
 
 static int divisors[] = { 2, 3, 4, 6, 8, 12, 16, 18,
-			  24, 32, 36, 48, 0, 72, 96, 0 };
+			  24, 32, 36, 48, 7, 72, 96, 0 };
 
 static struct clk_div_mult_table div4_div_mult_table = {
 	.divisors = divisors,
