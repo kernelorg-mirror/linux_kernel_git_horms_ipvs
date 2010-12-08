@@ -36,6 +36,21 @@
 
 #include "tmio_mmc.h"
 
+static void tmio_mmc_check_busy(struct tmio_mmc_host *host)
+{
+	int timeout = 0;
+
+	/*
+	 * SD Bus busy will be end in 8 * SD clocks period at most.
+	 * Low clock = 96MHz/512 --> T=5.33us --> *8 = 42.6us
+	 */
+	while ((sd_ctrl_read16(host, 0x1e) & (1 << 13)) == 0) {
+		if (timeout++ > 43)
+			break;
+		udelay(1);
+	}
+}
+
 static void tmio_mmc_set_clock(struct tmio_mmc_host *host, int new_clock)
 {
 	u32 clk = 0, clock;
@@ -49,6 +64,8 @@ static void tmio_mmc_set_clock(struct tmio_mmc_host *host, int new_clock)
 
 	if (host->set_clk_div)
 		host->set_clk_div(host->pdev, (clk>>22) & 1);
+
+	tmio_mmc_check_busy(host);
 
 	sd_ctrl_write16(host, CTL_SD_CARD_CLK_CTL, clk & 0x1ff);
 }
@@ -149,16 +166,7 @@ tmio_mmc_start_command(struct tmio_mmc_host *host, struct mmc_command *cmd)
 
 	enable_mmc_irqs(host, TMIO_MASK_CMD);
 
-	/* SD Bus busy will be end in 8 * SD clocks period at most.     *
-	 * Low clock = 96MHz/512 --> T=5.33us --> *8 = 42.6us           */
-	{
-		int timeout = 0;
-		while ((sd_ctrl_read16(host, 0x1e) & (1<<13)) == 0) {
-			if (timeout++ > 43)
-				break;
-			udelay(1);
-		}
-	}
+	tmio_mmc_check_busy(host);
 
 	/* Fire off the command */
 	sd_ctrl_write32(host, CTL_ARG_REG, cmd->arg);
