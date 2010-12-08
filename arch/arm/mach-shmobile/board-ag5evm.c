@@ -271,6 +271,9 @@ static struct i2c_board_info i2c2_devices[] = {
 	{
 		I2C_BOARD_INFO("kodoh", 0x63),
 	},
+	{
+		I2C_BOARD_INFO("kodoh-rtc", 0x32),
+	},
 };
 
 static struct resource sh_mmcif_resources[] = {

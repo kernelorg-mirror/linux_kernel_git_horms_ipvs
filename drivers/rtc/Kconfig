@@ -923,4 +923,10 @@ config RTC_DRV_MPC5121
 	  This driver can also be built as a module. If so, the module
 	  will be called rtc-mpc5121.
 
+config RTC_DRV_KODOH
+	tristate "KODOH RTC"
+	depends on MACH_AG5EVM
+	help
+	  This enables support for the KODOH PMIC RTC
+
 endif # RTC_CLASS
