@@ -130,8 +130,8 @@ static struct sh_keysc_info keysc_platdata = {
 	.scan_timing	= 3,
 	.delay		= 100,
 	.keycodes	= {
-		KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, 0,
-		KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M, KEY_N, 0,
+		KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_VOLUMEDOWN,
+		KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M, KEY_N, KEY_VOLUMEUP,
 		KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T, KEY_U, 0,
 		KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z, KEY_HOME, KEY_SLEEP, 0,
 		KEY_SPACE, KEY_9, KEY_6, KEY_3, KEY_WAKEUP, KEY_RIGHT, \
