@@ -54,6 +54,7 @@
 #include <asm/traps.h>
 
 #include <sound/sh_fsi.h>
+#include <video/sh_mobile_lcdc.h>
 
 static struct r8a66597_platdata usb_data = {
 	.on_chip	= 1,
@@ -260,6 +261,12 @@ static struct platform_device fsi_device = {
 	},
 };
 
+static struct i2c_board_info i2c1_devices[] = {
+	{
+		I2C_BOARD_INFO("led", 0x6d),
+	},
+};
+
 static struct i2c_board_info i2c2_devices[] = {
 	{
 		I2C_BOARD_INFO("kodoh", 0x63),
@@ -361,6 +368,73 @@ static struct platform_device usb_mass_storage_device = {
 	},
 };
 
+static struct sh_mobile_lcdc_info lcdc_info = {
+	.clock_source	= 0x01,
+
+	/* LCDC0 */
+	.ch[0] = {
+		.chan = LCDC_CHAN_MAINLCD,
+		.bpp = 16,
+		.interface_type		= RGB24,
+		.clock_divider		= 1,
+		.flags			= LCDC_FLAGS_DWPOL,
+		.lcd_cfg = {
+			.name		= "WVGA",
+			.xres		= 480,
+			.yres		= 854,
+			.left_margin	= 64,
+			.right_margin	= 8,
+			.hsync_len	= 16,
+			.upper_margin	= 1,
+			.lower_margin	= 168,
+			.vsync_len	= 1,
+			.sync		= 0,
+		},
+		.lcd_size_cfg = {
+			.width	= 44,
+			.height	= 79,
+		},
+	},
+};
+
+static struct resource lcdc_resources[] = {
+	[0] = {
+		.name	= "LCDC",
+		.start	= 0xee940000,
+		.end	= 0xee943fff,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= intcs_evt2irq(0x580),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device lcdc_device = {
+	.name		= "sh_mobile_lcdc_fb",
+	.num_resources	= ARRAY_SIZE(lcdc_resources),
+	.resource	= lcdc_resources,
+	.dev	= {
+		.platform_data  = &lcdc_info,
+		.coherent_dma_mask = ~0,
+	},
+};
+
+static struct resource mfis_resources[] = {
+	[0] = {
+		.name   = "MFIS",
+		.start  = gic_spi(58),
+		.flags  = IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device mfis_device = {
+	.name           = "mfis",
+	.id                     = 0,
+	.resource       = mfis_resources,
+	.num_resources  = ARRAY_SIZE(mfis_resources),
+};
+
 static struct platform_device *ag5evm_devices[] __initdata = {
 	&usb_func_device,
 	&eth_device,
@@ -368,6 +442,8 @@ static struct platform_device *ag5evm_devices[] __initdata = {
 	&sdhi0_device,
 	&fsi_device,
 	&sh_mmcif_device,
+	&lcdc_device,
+	&mfis_device,
 
 	&usb_mass_storage_device,
 	&android_usb_device,
@@ -382,6 +458,21 @@ static struct map_desc ag5evm_io_desc[] __initdata = {
 		.pfn		= __phys_to_pfn(0xe6000000),
 		.length		= 256 << 20,
 		.type		= MT_DEVICE_NONSHARED
+	},
+	{
+		/*
+		 * Create 4MB of virtual address hole within a big 1:1 map
+		 * requested above, which is dedicated for display drivers.
+		 *
+		 * According to the hardware manuals, physical 0xefc00000
+		 * space is reserved for Router and a data abort error will
+		 * be generated if access is made there.  So this partial
+		 * mapping change won't be a problem.
+		 */
+		.virtual        = 0xefc00000,
+		.pfn            = __phys_to_pfn(0xffc00000),
+		.length         = 0x00400000,
+		.type           = MT_DEVICE_NONSHARED
 	},
 };
 
@@ -399,6 +490,43 @@ static irqreturn_t sdhi0_mpx_interrupt(int irq, void *dev_id)
 	generic_handle_irq(gic_spi(83));
 	return IRQ_HANDLED;
 }
+
+/**************************************/
+/* Turn on LCD backlight */
+static int led_probe(struct i2c_client *client, const struct i2c_device_id *id)
+{
+	/* Unreset LED controler Reset */
+	gpio_request(GPIO_PORT235, NULL);
+	gpio_direction_output(GPIO_PORT235, 0);
+	udelay(1);
+	gpio_set_value(GPIO_PORT235, 1);
+
+	i2c_smbus_write_byte_data(client, 0x04, 0x07);
+	i2c_smbus_write_byte_data(client, 0x23, 0x80);
+	i2c_smbus_write_byte_data(client, 0x03, 0x01);
+
+	return 0;
+}
+
+static struct i2c_device_id led_idtable[] = {
+	{"led", 0},
+	{ },
+};
+
+static struct i2c_driver led_drv = {
+	.driver		= {
+		.name	= "led driver",
+	},
+	.probe		= led_probe,
+	.id_table	= led_idtable,
+};
+
+static __init int led_init(void)
+{
+	return i2c_add_driver(&led_drv);
+}
+device_initcall(led_init);
+/**************************************/
 
 #define PINTC_ADDR	0xe6900000
 #define PINTER0A	(PINTC_ADDR + 0xa0)
@@ -509,6 +637,12 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_FSIAISLD_PU, NULL);
 	gpio_request(GPIO_FN_FSIAOSLD, NULL);
 
+	/* Unreset LCD Panel */
+	gpio_request(GPIO_PORT217, NULL);
+	gpio_direction_output(GPIO_PORT217, 0);
+	udelay(1);
+	gpio_set_value(GPIO_PORT217, 1);
+
 #ifdef CONFIG_CACHE_L2X0
 	/* Shared attribute override enable, 64K*8way */
 	l2x0_init(__io(0xf0100000), 0x00460000, 0xc2000fff);
@@ -523,6 +657,7 @@ static void __init ag5evm_init(void)
 
 	sh73a0_add_standard_devices();
 
+	i2c_register_board_info(1, i2c1_devices, ARRAY_SIZE(i2c1_devices));
 	i2c_register_board_info(2, i2c2_devices, ARRAY_SIZE(i2c2_devices));
 	platform_add_devices(ag5evm_devices, ARRAY_SIZE(ag5evm_devices));
 }
