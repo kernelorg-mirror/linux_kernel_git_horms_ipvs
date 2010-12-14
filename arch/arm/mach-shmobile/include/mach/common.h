@@ -28,4 +28,9 @@ extern void sh73a0_add_standard_devices(void);
 extern void sh73a0_clock_init(void);
 extern void sh73a0_pinmux_init(void);
 
+extern unsigned int sh73a0_get_core_count(void);
+extern void sh73a0_secondary_init(unsigned int cpu);
+extern int sh73a0_boot_secondary(unsigned int cpu);
+extern void sh73a0_smp_prepare_cpus(void);
+
 #endif /* __ARCH_MACH_COMMON_H */
