@@ -3,7 +3,7 @@
 
 extern struct sys_timer shmobile_timer;
 extern void shmobile_setup_console(void);
-
+extern void shmobile_secondary_vector(void);
 extern int clk_init(void);
 
 extern void sh7367_init_irq(void);
