@@ -495,9 +495,39 @@ static irqreturn_t sdhi0_mpx_interrupt(int irq, void *dev_id)
 }
 
 /**************************************/
-/* Turn on LCD backlight */
+/* Control LCD backlight (default on) */
+#include <linux/leds.h>
+
+#define HW_MAX_BRIGHTNESS 0x80
+
+static struct i2c_client *led_client;
+
+static void
+led_backlight_set(struct led_classdev *led_cdev, enum led_brightness value)
+{
+	int hw_val = (value * HW_MAX_BRIGHTNESS) / LED_FULL;
+
+	if (hw_val > HW_MAX_BRIGHTNESS)
+		hw_val = HW_MAX_BRIGHTNESS;
+
+	i2c_smbus_write_byte_data(led_client, 0x23, hw_val & 0xff);
+
+	if (value == LED_OFF)
+		i2c_smbus_write_byte_data(led_client, 0x03, 0x00);
+	else
+		i2c_smbus_write_byte_data(led_client, 0x03, 0x01);
+}
+
+static struct led_classdev led_backlight = {
+	.name = "lcd-backlight",
+	.brightness = LED_FULL,
+	.brightness_set = led_backlight_set,
+};
+
 static int led_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
+	led_client = client;
+
 	/* Unreset LED controler Reset */
 	gpio_request(GPIO_PORT235, NULL);
 	gpio_direction_output(GPIO_PORT235, 0);
@@ -508,7 +538,7 @@ static int led_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_smbus_write_byte_data(client, 0x23, 0x80);
 	i2c_smbus_write_byte_data(client, 0x03, 0x01);
 
-	return 0;
+	return led_classdev_register(&client->dev, &led_backlight);
 }
 
 static struct i2c_device_id led_idtable[] = {
