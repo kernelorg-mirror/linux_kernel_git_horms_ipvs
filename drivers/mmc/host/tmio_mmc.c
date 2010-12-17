@@ -31,6 +31,7 @@
 #include <linux/delay.h>
 #include <linux/dmaengine.h>
 #include <linux/mmc/host.h>
+#include <linux/mmc/sdio.h>
 #include <linux/mfd/core.h>
 #include <linux/mfd/tmio.h>
 
@@ -72,8 +73,10 @@ static void tmio_mmc_set_clock(struct tmio_mmc_host *host, int new_clock)
 
 static void tmio_mmc_clk_stop(struct tmio_mmc_host *host)
 {
+#ifndef CONFIG_ARCH_SH73A0
 	sd_ctrl_write16(host, CTL_CLK_AND_WAIT_CTL, 0x0000);
 	msleep(10);
+#endif
 	sd_ctrl_write16(host, CTL_SD_CARD_CLK_CTL, ~0x0100 &
 		sd_ctrl_read16(host, CTL_SD_CARD_CLK_CTL));
 	msleep(10);
@@ -84,8 +87,10 @@ static void tmio_mmc_clk_start(struct tmio_mmc_host *host)
 	sd_ctrl_write16(host, CTL_SD_CARD_CLK_CTL, 0x0100 |
 		sd_ctrl_read16(host, CTL_SD_CARD_CLK_CTL));
 	msleep(10);
+#ifndef CONFIG_ARCH_SH73A0
 	sd_ctrl_write16(host, CTL_CLK_AND_WAIT_CTL, 0x0100);
 	msleep(10);
+#endif
 }
 
 static void reset(struct tmio_mmc_host *host)
@@ -159,6 +164,9 @@ tmio_mmc_start_command(struct tmio_mmc_host *host, struct mmc_command *cmd)
 		if (data->blocks > 1) {
 			sd_ctrl_write16(host, CTL_STOP_INTERNAL_ACTION, 0x100);
 			c |= TRANSFER_MULTI;
+			if (cmd->opcode == 53)
+				c |= 0x4000; /* Stop CMD is not necessary */
+
 		}
 		if (data->flags & MMC_DATA_READ)
 			c |= TRANSFER_READ;
@@ -167,6 +175,26 @@ tmio_mmc_start_command(struct tmio_mmc_host *host, struct mmc_command *cmd)
 	enable_mmc_irqs(host, TMIO_MASK_CMD);
 
 	tmio_mmc_check_busy(host);
+
+	switch (cmd->opcode) {
+	case 52:
+		sd_ctrl_write16(host, CTL_TRANSACTION_CTL, 0x0001);
+		sd_ctrl_write16(host, CTL_SDIO_IRQ_MASK, 0x0006);
+		break;
+	case 53:
+		if ((data->flags & MMC_DATA_READ) && data->blocks > 1) {
+			sd_ctrl_write16(host, CTL_SDIO_IRQ_MASK, 0xc007);
+			sd_ctrl_write16(host, CTL_TRANSACTION_CTL, 0x0000);
+		} else {
+			sd_ctrl_write16(host, CTL_TRANSACTION_CTL, 0x0001);
+			sd_ctrl_write16(host, CTL_SDIO_IRQ_MASK, 0x0006);
+		}
+		break;
+	default:
+		sd_ctrl_write16(host, CTL_SDIO_IRQ_MASK, 0xc007);
+		sd_ctrl_write16(host, CTL_TRANSACTION_CTL, 0x0000);
+		break;
+	}
 
 	/* Fire off the command */
 	sd_ctrl_write32(host, CTL_ARG_REG, cmd->arg);
@@ -223,6 +251,13 @@ static void tmio_mmc_do_data_irq(struct tmio_mmc_host *host)
 {
 	struct mmc_data *data = host->data;
 	struct mmc_command *stop;
+
+	if (data) {
+		if ((data->flags & MMC_DATA_READ) && data->blocks > 1) {
+			sd_ctrl_write16(host, CTL_TRANSACTION_CTL, 0x0001);
+			sd_ctrl_write16(host, CTL_SDIO_IRQ_MASK, 0x0006);
+		}
+	}
 
 	host->data = NULL;
 
@@ -360,8 +395,21 @@ static irqreturn_t tmio_mmc_irq(int irq, void *devid)
 {
 	struct tmio_mmc_host *host = devid;
 	unsigned int ireg, irq_mask, status;
+	unsigned int sdio_ireg, sdio_irq_mask, sdio_status;
 
 	pr_debug("MMC IRQ begin\n");
+
+	sdio_ireg = 0;
+	if (host->mmc->caps & MMC_CAP_SDIO_IRQ) {
+		sdio_status = sd_ctrl_read16(host, CTL_SDIO_STATUS);
+		sdio_irq_mask = sd_ctrl_read16(host, CTL_SDIO_IRQ_MASK);
+		sdio_ireg = sdio_status & 0xc007 & ~sdio_irq_mask;
+
+		sd_ctrl_write16(host, CTL_SDIO_STATUS, sdio_status & ~0xc007);
+
+		if (sdio_ireg & 1)
+			mmc_signal_sdio_irq(host->mmc);
+	}
 
 	status = sd_ctrl_read32(host, CTL_STATUS);
 	irq_mask = sd_ctrl_read32(host, CTL_IRQ_MASK);
@@ -370,7 +418,7 @@ static irqreturn_t tmio_mmc_irq(int irq, void *devid)
 	pr_debug_status(status);
 	pr_debug_status(ireg);
 
-	if (!ireg) {
+	if (!ireg && !sdio_ireg) {
 		disable_mmc_irqs(host, status & ~irq_mask);
 
 		pr_warning("tmio_mmc: Spurious irq, disabling! "
@@ -827,11 +875,29 @@ static int tmio_mmc_get_cd(struct mmc_host *mmc)
 		return pdata->get_cd(host->pdev);
 }
 
+static void tmio_mmc_enable_sdio_irq(struct mmc_host *mmc, int enable)
+{
+	struct tmio_mmc_host *host = mmc_priv(mmc);
+
+	if (enable) {
+		if (!(sd_ctrl_read32(host, CTL_STATUS) & TMIO_STAT_CMD_BUSY)) {
+			sd_ctrl_write16(host, CTL_TRANSACTION_CTL, 0x0001);
+			sd_ctrl_write16(host, CTL_SDIO_IRQ_MASK, 0x0006);
+		}
+	} else {
+		if (!(sd_ctrl_read32(host, CTL_STATUS) & TMIO_STAT_CMD_BUSY)) {
+			sd_ctrl_write16(host, CTL_SDIO_IRQ_MASK, 0xc007);
+			sd_ctrl_write16(host, CTL_TRANSACTION_CTL, 0x0000);
+		}
+	}
+}
+
 static const struct mmc_host_ops tmio_mmc_ops = {
 	.request	= tmio_mmc_request,
 	.set_ios	= tmio_mmc_set_ios,
 	.get_ro         = tmio_mmc_get_ro,
 	.get_cd		= tmio_mmc_get_cd,
+	.enable_sdio_irq = tmio_mmc_enable_sdio_irq,
 };
 
 #ifdef CONFIG_PM
