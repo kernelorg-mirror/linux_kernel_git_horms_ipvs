@@ -40,6 +40,7 @@
 #include <linux/mmc/host.h>
 #include <linux/mmc/sh_mmcif.h>
 #include <linux/mfd/sh_mobile_sdhi.h>
+#include <linux/mfd/tmio.h>
 #include <linux/usb/android_composite.h>
 
 #include <mach/hardware.h>
@@ -192,6 +193,35 @@ static struct platform_device sdhi0_device = {
 	.dev	= {
 		.platform_data	= &sdhi0_info,
 	},
+};
+
+static struct sh_mobile_sdhi_info sh_sdhi1_platdata = {
+	.tmio_flags	= TMIO_MMC_WRPROTECT_DISABLE,
+	.tmio_caps	= MMC_CAP_NEEDS_POLL,
+	.tmio_ocr_mask	= MMC_VDD_32_33 | MMC_VDD_33_34,
+};
+
+static struct resource sdhi1_resources[] = {
+	[0] = {
+		.name	= "SDHI1",
+		.start	= 0xee120000,
+		.end	= 0xee120fff,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= soft_irq(0),
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device sdhi1_device = {
+	.name		= "sh_mobile_sdhi",
+	.id		= 1,
+	.dev		= {
+		.platform_data	= &sh_sdhi1_platdata,
+	},
+	.num_resources	= ARRAY_SIZE(sdhi1_resources),
+	.resource	= sdhi1_resources,
 };
 
 /* FSI A */
@@ -443,6 +473,7 @@ static struct platform_device *ag5evm_devices[] __initdata = {
 	&eth_device,
 	&keysc_device,
 	&sdhi0_device,
+	&sdhi1_device,
 	&fsi_device,
 	&sh_mmcif_device,
 	&lcdc_device,
@@ -488,6 +519,46 @@ static void __init ag5evm_map_io(void)
 	shmobile_setup_console();
 }
 
+static void mpx_enable_irq(unsigned int irq)
+{
+	irq_to_desc(gic_spi(87))->chip->enable(gic_spi(87));
+	irq_to_desc(gic_spi(88))->chip->enable(gic_spi(88));
+	irq_to_desc(gic_spi(89))->chip->enable(gic_spi(89));
+}
+
+static void mpx_disable_irq(unsigned int irq)
+{
+	irq_to_desc(gic_spi(87))->chip->disable(gic_spi(87));
+	irq_to_desc(gic_spi(88))->chip->disable(gic_spi(88));
+	irq_to_desc(gic_spi(89))->chip->disable(gic_spi(89));
+}
+
+static void mpx_startup_irq(unsigned int irq)
+{
+	/* enable them formerly started with NOAUTOEN */
+	irq_to_desc(gic_spi(87))->depth = 0;
+	irq_to_desc(gic_spi(87))->status &= ~IRQ_DISABLED;
+	irq_to_desc(gic_spi(87))->chip->startup(gic_spi(87));
+
+	irq_to_desc(gic_spi(88))->depth = 0;
+	irq_to_desc(gic_spi(88))->status &= ~IRQ_DISABLED;
+	irq_to_desc(gic_spi(88))->chip->startup(gic_spi(88));
+
+	irq_to_desc(gic_spi(89))->depth = 0;
+	irq_to_desc(gic_spi(89))->status &= ~IRQ_DISABLED;
+	/* Disable this for now
+	irq_to_desc(gic_spi(89))->chip->startup(gic_spi(89));
+	*/
+}
+
+static struct irq_chip mpx_chip = {
+	.name	= "sdhi-mpx",
+	.enable = mpx_enable_irq,
+	.disable = mpx_disable_irq,
+	.startup = mpx_startup_irq,
+};
+
+/* reroute SDHI0.SPI(84) to TMIO_MMC.0(SPI(83))) */
 static irqreturn_t sdhi0_mpx_interrupt(int irq, void *dev_id)
 {
 	generic_handle_irq(gic_spi(83));
@@ -561,6 +632,13 @@ static __init int led_init(void)
 device_initcall(led_init);
 /**************************************/
 
+/* reroute SDHI1(SPI(87-89)) to TMIO_MMC.1(soft_irq(0)) */
+static irqreturn_t sdhi1_mpx_interrupt(int irq, void *dev_id)
+{
+	generic_handle_irq(soft_irq(0));
+	return IRQ_HANDLED;
+}
+
 #define PINTC_ADDR	0xe6900000
 #define PINTER0A	(PINTC_ADDR + 0xa0)
 #define PINTCR0A	(PINTC_ADDR + 0xb0)
@@ -575,6 +653,22 @@ void __init ag5evm_init_irq(void)
 	gic_cpu_init(0, __io(0xf0000100));
 
 	sh73a0_init_irq();
+
+	/* chip enable/disable multiplyer
+	 * do gang enable/disable by soft_irq(0) */
+	irq_to_desc_alloc_node(soft_irq(0), smp_processor_id());
+	dynamic_irq_init(soft_irq(0));
+	set_irq_chip_and_handler(soft_irq(0), &mpx_chip, handle_simple_irq);
+	set_irq_flags(soft_irq(0), IRQF_VALID);
+
+	/* disable them until TMIO_MMC startup */
+	irq_to_desc(gic_spi(87))->status |= IRQ_NOAUTOEN;
+	irq_to_desc(gic_spi(88))->status |= IRQ_NOAUTOEN;
+	irq_to_desc(gic_spi(89))->status |= IRQ_NOAUTOEN;
+	/* to reroute SDHI1 to TMIO_MMC */
+	request_irq(gic_spi(87), sdhi1_mpx_interrupt, 0, "sdhi1_0", 0);
+	request_irq(gic_spi(88), sdhi1_mpx_interrupt, 0, "sdhi1_1", 0);
+	request_irq(gic_spi(89), sdhi1_mpx_interrupt, 0, "sdhi1_2", 0);
 }
 
 #define SUBCKCR		0xe6150080
@@ -607,6 +701,16 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_SDHID0_2, NULL);
 	gpio_request(GPIO_FN_SDHID0_1, NULL);
 	gpio_request(GPIO_FN_SDHID0_0, NULL);
+
+	/* enable SDHI1 */
+	gpio_request(GPIO_FN_SDHICLK1, NULL);
+	gpio_request(GPIO_FN_SDHICMD1_PU, NULL);
+	gpio_request(GPIO_FN_SDHID1_3_PU, NULL);
+	gpio_request(GPIO_FN_SDHID1_2_PU, NULL);
+	gpio_request(GPIO_FN_SDHID1_1_PU, NULL);
+	gpio_request(GPIO_FN_SDHID1_0_PU, NULL);
+	gpio_request(GPIO_PORT114, "sdhi1_power");
+	gpio_direction_output(GPIO_PORT114, 1);
 
 	/* enable MMCIF */
 	gpio_request(GPIO_FN_MMCCLK0, NULL);
