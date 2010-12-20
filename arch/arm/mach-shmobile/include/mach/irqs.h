@@ -1,7 +1,7 @@
 #ifndef __ASM_MACH_IRQS_H
 #define __ASM_MACH_IRQS_H
 
-#define NR_IRQS         512
+#define NR_IRQS         1024
 #define NR_IRQS_LEGACY  8
 
 /* GIC */
