@@ -275,6 +275,16 @@ __v7_setup:
 	mcrle	p15, 0, r10, c15, c0, 1		@ write diagnostic register
 #endif
 
+#ifdef CONFIG_CPU_DCACHE_PREFETCH
+	/*
+	 * TODO: This should be disabled for all r0, r1 and r2 revisions
+	 * due to the 751473 Cortex-A9 erratum.
+	 */
+	mrc	p15, 0, r10, c1, c0, 1		@ read aux control register
+	orr	r10, r10, #1 << 2		@ set L1 prefetch enable bit
+	mcr	p15, 0, r10, c1, c0, 1		@ write aux control register
+#endif
+
 3:	mov	r10, #0
 #ifdef HARVARD_CACHE
 	mcr	p15, 0, r10, c7, c5, 0		@ I+BTB cache invalidate
