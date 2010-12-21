@@ -175,6 +175,19 @@ static int sh_cmt_enable(struct sh_cmt_priv *p, unsigned long *rate)
 	sh_cmt_write(p, CMCOR, 0xffffffff);
 	sh_cmt_write(p, CMCNT, 0);
 
+	/*
+	 * According to the user's manual, as CMCNT can be operated only
+	 * by by the RCLK (Pseudo 32 KHz), there's one restrictions on
+	 * modifying CMCNT register; two RCLK cycles are necessary before
+	 * this register is either read or any modification of the value
+	 * it holds is reflected in the LSI's actual operation.
+	 *
+	 * While at it, we're supposed to clear out the CMCNT as of this
+	 * moment, so make sure it's processed properly here.  This will
+	 * take RCLKx2 at maximum.
+	 */
+	while (sh_cmt_read(p, CMCNT) != 0);
+
 	/* enable channel */
 	sh_cmt_start_stop_ch(p, 1);
 	return 0;
