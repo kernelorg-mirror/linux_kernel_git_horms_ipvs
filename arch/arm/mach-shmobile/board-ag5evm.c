@@ -195,10 +195,16 @@ static struct platform_device sdhi0_device = {
 	},
 };
 
+void ag5evm_sdhi1_set_pwr(struct platform_device *pdev, int state)
+{
+	gpio_set_value(GPIO_PORT114, state);
+}
+
 static struct sh_mobile_sdhi_info sh_sdhi1_platdata = {
 	.tmio_flags	= TMIO_MMC_WRPROTECT_DISABLE,
 	.tmio_caps	= MMC_CAP_NEEDS_POLL,
 	.tmio_ocr_mask	= MMC_VDD_32_33 | MMC_VDD_33_34,
+	.set_pwr	= ag5evm_sdhi1_set_pwr,
 };
 
 static struct resource sdhi1_resources[] = {
@@ -710,7 +716,7 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_SDHID1_1_PU, NULL);
 	gpio_request(GPIO_FN_SDHID1_0_PU, NULL);
 	gpio_request(GPIO_PORT114, "sdhi1_power");
-	gpio_direction_output(GPIO_PORT114, 1);
+	gpio_direction_output(GPIO_PORT114, 0);
 
 	/* enable MMCIF */
 	gpio_request(GPIO_FN_MMCCLK0, NULL);
