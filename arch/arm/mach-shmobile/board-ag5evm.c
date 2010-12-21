@@ -812,8 +812,8 @@ static void __init ag5evm_init(void)
 	gpio_set_value(GPIO_PORT217, 1);
 
 #ifdef CONFIG_CACHE_L2X0
-	/* Shared attribute override enable, 64K*8way */
-	l2x0_init(__io(0xf0100000), 0x00460000, 0xc2000fff);
+	/* Early BRESP enable, Shared attribute override enable, 64K*8way */
+	l2x0_init(__io(0xf0100000), 0x40460000, 0x82000fff);
 #endif
 	/* multiplex irqs to sdhi0 */
 	if (request_irq(gic_spi(84), sdhi0_mpx_interrupt, IRQF_DISABLED,
