@@ -812,6 +812,8 @@ static void __init ag5evm_init(void)
 	gpio_set_value(GPIO_PORT217, 1);
 
 #ifdef CONFIG_CACHE_L2X0
+	/* Enable Dynamic clock gating */
+	__raw_writel(0x00000002, __io(0xf0100000) + L2X0_POWER_CTRL);
 	/* Early BRESP enable, Shared attribute override enable, 64K*8way */
 	l2x0_init(__io(0xf0100000), 0x40460000, 0x82000fff);
 #endif
