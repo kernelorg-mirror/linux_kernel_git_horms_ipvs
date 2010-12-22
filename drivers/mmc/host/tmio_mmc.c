@@ -1027,7 +1027,12 @@ static int __devinit tmio_mmc_probe(struct platform_device *dev)
 	tmio_mmc_request_dma(host, pdata);
 
 	status = sd_ctrl_read32(host, CTL_STATUS);
-	host->connect = status & TMIO_STAT_SIGSTATE ? 1 : 0;
+
+	if (host->pdata->capabilities &
+		(MMC_CAP_NEEDS_POLL | MMC_CAP_NONREMOVABLE))
+		host->connect = 1;
+	else
+		host->connect = status & TMIO_STAT_SIGSTATE ? 1 : 0;
 
 #ifdef CONFIG_TMIO_MMC_DMA
 	INIT_WORK(&host->detect_wq, tmio_detect_work);
