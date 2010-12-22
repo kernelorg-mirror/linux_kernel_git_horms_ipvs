@@ -390,7 +390,7 @@ static int kodoh_i2c_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id kodoh_i2c_id[] = {
-	{ "kodoh", 0 },
+	{ "kodoh-codec", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, kodoh_i2c_id);

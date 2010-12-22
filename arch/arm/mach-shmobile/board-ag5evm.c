@@ -305,7 +305,7 @@ static struct i2c_board_info i2c1_devices[] = {
 
 static struct i2c_board_info i2c2_devices[] = {
 	{
-		I2C_BOARD_INFO("kodoh", 0x63),
+		I2C_BOARD_INFO("kodoh-codec", 0x63),
 	},
 	{
 		I2C_BOARD_INFO("kodoh-rtc", 0x32),
