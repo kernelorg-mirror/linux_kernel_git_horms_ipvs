@@ -353,6 +353,12 @@ static struct clk zb3s_clk = {
 	/* or &div4_clks[DIV4_ZB31] according to FRQCRD.ZB31SEL */
 };
 
+static struct clk z_clk = {
+	.ops	= &followparent_clk_ops,
+	.parent	= &pllc0_clk,
+	/* or &div4_clks[DIV4_Z] according to FRQCRB.ZSEL */
+};
+
 struct clk *sub_clks[] = {
 	&sub_clk,
 	&spua_clk,
@@ -363,6 +369,7 @@ struct clk *sub_clks[] = {
 	&zb1_clk,
 	&zb3_clk,
 	&zb3s_clk,
+	&z_clk,
 };
 
 enum {
@@ -652,7 +659,7 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("b_clk", &div4_clks[DIV4_B]),
 	CLKDEV_CON_ID("m1_clk", &div4_clks[DIV4_M1]),
 	CLKDEV_CON_ID("m2_clk", &div4_clks[DIV4_M2]),
-	CLKDEV_CON_ID("z_clk", &div4_clks[DIV4_Z]),
+	CLKDEV_CON_ID("zsel_clk", &div4_clks[DIV4_Z]),
 	CLKDEV_CON_ID("ztr_clk", &div4_clks[DIV4_ZTR]),
 	CLKDEV_CON_ID("zt_clk", &div4_clks[DIV4_ZT]),
 	CLKDEV_CON_ID("zx_clk", &div4_clks[DIV4_ZX]),
@@ -687,6 +694,7 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("sub_clk", &sub_clk),
 	CLKDEV_CON_ID("spua_clk", &spua_clk),
 	CLKDEV_CON_ID("spuv_clk", &spuv_clk),
+	CLKDEV_CON_ID("z_clk", &z_clk),
 
 	/* MSTP32 clocks */
 	CLKDEV_CON_ID("usb0_dmac", &mstp_clks[MSTP214]),
@@ -729,6 +737,9 @@ static struct clk_lookup lookups[] = {
 void __init sh73a0_clock_init(void)
 {
 	int k, ret = 0;
+
+	if (__raw_readl((void __iomem *)FRQCRB) & (1 << 28))
+		z_clk.parent = &div4_clks[DIV4_Z];
 
 	for (k = 0; !ret && (k < ARRAY_SIZE(main_clks)); k++)
 		ret = clk_register(main_clks[k]);
