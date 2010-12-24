@@ -55,6 +55,50 @@ static const char hcd_name[] = "r8a66597_hcd";
 static void packet_write(struct r8a66597 *r8a66597, u16 pipenum);
 static int r8a66597_get_frame(struct usb_hcd *hcd);
 
+/* CPGA */
+#define SRCR2			0xe61580b0
+#define SRCR3			0xe61580b8
+
+/* GPIO */
+#define USBCR2			0xe605810c
+#define   USBCR2_USB_START	(1 << 15)
+#define   USBCR2_USB_COR	0x0a00	/* default value */
+#define   USBCR2_USB_OFF	(1 << 7)
+#define   USBCR2_USB_CNT	0x000a	/* default value */
+
+#if 0
+static void usb_module_reset(void)
+{
+	__raw_writel((1 << 14), SRCR2);	/* reset USBDMAC */
+	__raw_writel((1 << 22), SRCR3);	/* reset USBHS */
+	udelay(10);
+	__raw_writel(0, SRCR2);
+	__raw_writel(0, SRCR3);
+}
+#endif
+
+static int initialize_usb_phy(struct r8a66597 *r8a66597, int on)
+{
+	int i = 0;
+
+	if (__raw_readw(USBCR2) & USBCR2_USB_OFF) {
+		__raw_writew(USBCR2_USB_START | USBCR2_USB_COR | USBCR2_USB_CNT,
+			     USBCR2);
+		while (__raw_readw(USBCR2) & USBCR2_USB_OFF) {
+			if (i++ > 100000) {
+				pr_err("%s: timeout\n", __func__);
+				return -ENXIO;
+			}
+			udelay(10);
+		}
+#if 0
+		/* FIXME: This will prevents devices from being detected... */
+		usb_module_reset();
+#endif
+	}
+	return 0;
+}
+
 /* this function must be called with interrupt disabled */
 static void enable_pipe_irq(struct r8a66597 *r8a66597, u16 pipenum,
 			    unsigned long reg)
@@ -1840,6 +1884,14 @@ static int check_pipe_config(struct r8a66597 *r8a66597, struct urb *urb)
 static int r8a66597_start(struct usb_hcd *hcd)
 {
 	struct r8a66597 *r8a66597 = hcd_to_r8a66597(hcd);
+
+	/*
+	 * Set USBCR2.USB_START and clear USBCR2.USB_OFF after VBUS_0 is
+	 * detected.  On the modified AG5EVM, VBUS port power is applied
+	 * to CN7@APL_CORE_BOARD from the beginning, and VBUS_0 input is
+	 * asserted as well.  So let's get USB-PHY connected here.
+	 */
+	initialize_usb_phy(r8a66597, 1);
 
 	hcd->state = HC_STATE_RUNNING;
 	return enable_controller(r8a66597);

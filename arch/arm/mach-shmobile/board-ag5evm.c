@@ -57,7 +57,12 @@
 #include <sound/sh_fsi.h>
 #include <video/sh_mobile_lcdc.h>
 
-static struct r8a66597_platdata usb_data = {
+static struct r8a66597_platdata usb_host_data = {
+	.on_chip	= 1,
+	.dma_trans_byte	= 32,
+};
+
+static struct r8a66597_platdata usb_func_data = {
 	.on_chip	= 1,
 	.dma_trans_byte = 32,
 };
@@ -85,13 +90,25 @@ static struct resource usb_resources[] = {
 	},
 };
 
+static struct platform_device usb_host_device = {
+	.name		= "r8a66597_hcd",
+	.id		= 0,
+	.dev = {
+		.platform_data		= &usb_host_data,
+		.dma_mask		= NULL,
+		.coherent_dma_mask	= 0xffffffff,
+	},
+	.num_resources	= ARRAY_SIZE(usb_resources),
+	.resource	= usb_resources,
+};
+
 static struct platform_device usb_func_device = {
 	.name	= "r8a66597_udc",
 	.id	= 0,
 	.dev = {
 		.dma_mask		= NULL,         /*  not use dma */
 		.coherent_dma_mask	= 0xffffffff,
-		.platform_data		= &usb_data,
+		.platform_data		= &usb_func_data,
 	},
 	.num_resources	= ARRAY_SIZE(usb_resources),
 	.resource	= usb_resources,
@@ -475,6 +492,7 @@ static struct platform_device mfis_device = {
 };
 
 static struct platform_device *ag5evm_devices[] __initdata = {
+	&usb_host_device,
 	&usb_func_device,
 	&eth_device,
 	&keysc_device,
@@ -756,6 +774,9 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_PORT237_I2C_SCL2, NULL);
 	gpio_request(GPIO_FN_PORT248_I2C_SCL3, NULL);
 	gpio_request(GPIO_FN_PORT249_I2C_SDA3, NULL);
+
+	/* enable USBHS host/function */
+	gpio_request(GPIO_FN_VBUS_0, NULL);
 
 	/* wake usb phy on */
 	gpio_request(GPIO_PORT24, NULL);
