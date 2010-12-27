@@ -691,9 +691,12 @@ void __init ag5evm_init_irq(void)
 	irq_to_desc(gic_spi(88))->status |= IRQ_NOAUTOEN;
 	irq_to_desc(gic_spi(89))->status |= IRQ_NOAUTOEN;
 	/* to reroute SDHI1 to TMIO_MMC */
-	request_irq(gic_spi(87), sdhi1_mpx_interrupt, 0, "sdhi1_0", 0);
-	request_irq(gic_spi(88), sdhi1_mpx_interrupt, 0, "sdhi1_1", 0);
-	request_irq(gic_spi(89), sdhi1_mpx_interrupt, 0, "sdhi1_2", 0);
+	if (request_irq(gic_spi(87), sdhi1_mpx_interrupt, 0, "sdhi1_0", 0))
+		pr_warning("Failed to get sdhi1_0 irq\n");
+	if (request_irq(gic_spi(88), sdhi1_mpx_interrupt, 0, "sdhi1_1", 0))
+		pr_warning("Failed to get sdhi1_1 irq\n");
+	if (request_irq(gic_spi(89), sdhi1_mpx_interrupt, 0, "sdhi1_2", 0))
+		pr_warning("Failed to get sdhi1_2 irq\n");
 }
 
 #define SUBCKCR		0xe6150080
