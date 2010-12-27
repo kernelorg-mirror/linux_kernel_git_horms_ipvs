@@ -557,7 +557,7 @@ static void mpx_disable_irq(unsigned int irq)
 	irq_to_desc(gic_spi(89))->chip->disable(gic_spi(89));
 }
 
-static void mpx_startup_irq(unsigned int irq)
+static unsigned int mpx_startup_irq(unsigned int irq)
 {
 	/* enable them formerly started with NOAUTOEN */
 	irq_to_desc(gic_spi(87))->depth = 0;
@@ -573,6 +573,7 @@ static void mpx_startup_irq(unsigned int irq)
 	/* Disable this for now
 	irq_to_desc(gic_spi(89))->chip->startup(gic_spi(89));
 	*/
+	return 0;
 }
 
 static struct irq_chip mpx_chip = {
