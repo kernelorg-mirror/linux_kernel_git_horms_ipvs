@@ -121,8 +121,8 @@ static struct resource smsc9220_resources[] = {
 		.flags		= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start		= gic_spi(33), /* PINT1 */
-		.flags		= IORESOURCE_IRQ,
+		.start		= pint2irq(29), /* PINTA2 */
+		.flags		= IORESOURCE_IRQ | IRQ_TYPE_LEVEL_LOW,
 	},
 };
 
@@ -664,16 +664,8 @@ static irqreturn_t sdhi1_mpx_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-#define PINTC_ADDR	0xe6900000
-#define PINTER0A	(PINTC_ADDR + 0xa0)
-#define PINTCR0A	(PINTC_ADDR + 0xb0)
-
 void __init ag5evm_init_irq(void)
 {
-	/* setup PINT: enable PINTA2 as active low */
-	__raw_writel(__raw_readl(PINTER0A) | (1<<29), PINTER0A);
-	__raw_writew(__raw_readw(PINTCR0A) | (2<<10), PINTCR0A);
-
 	gic_dist_init(0, __io(0xf0001000), 29);
 	gic_cpu_init(0, __io(0xf0000100));
 

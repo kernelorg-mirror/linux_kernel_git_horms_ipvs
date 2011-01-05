@@ -21,4 +21,8 @@
 #define SOFT_IRQ_BASE		(NR_IRQS - 16)
 #define soft_irq(nr)		((nr) + SOFT_IRQ_BASE)
 
+/* PINT (for sh73a0) */
+#define PINT_IRQ_BASE		256
+#define pint2irq(bit)		(PINT_IRQ_BASE + (bit))
+
 #endif /* __ASM_MACH_IRQS_H */

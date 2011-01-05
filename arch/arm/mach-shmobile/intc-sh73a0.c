@@ -291,13 +291,171 @@ static void intcs_demux(unsigned int irq, struct irq_desc *desc)
 	chip->unmask(irq);
 }
 
+/* PINT */
+#define PINTC_ADDR	0xe6900000
+#define PINTER0A	(PINTC_ADDR + 0xa0)	/* 32bit */
+#define PINTER1A	(PINTC_ADDR + 0xa4)	/* 32bit */
+#define PINTCR0A	(PINTC_ADDR + 0xb0)	/* 16bit */
+#define PINTCR1A	(PINTC_ADDR + 0xb4)	/* 16bit */
+#define PINTCR2A	(PINTC_ADDR + 0xb8)	/* 16bit */
+#define PINTCR3A	(PINTC_ADDR + 0xbc)	/* 16bit */
+#define PINTCR4A	(PINTC_ADDR + 0xc0)	/* 16bit */
+#define PINTRR0A	(PINTC_ADDR + 0xd0)	/* 32bit */
+#define PINTRR1A	(PINTC_ADDR + 0xd4)	/* 32bit */
+
+static DEFINE_SPINLOCK(pint_lock);
+
+static int pint_set_irq_type(unsigned int irq, unsigned int type)
+{
+	struct irq_desc *desc = irq_to_desc(irq);
+	u32 pin = irq - PINT_IRQ_BASE;
+	u32 shift = (pin & 0x07) << 1;
+	u32 mask, reg;
+	unsigned long flag;
+
+	switch (type & IRQ_TYPE_SENSE_MASK) {
+	case IRQ_TYPE_EDGE_RISING:
+		mask = 0x1 << shift;
+		__set_irq_handler_unlocked(irq, handle_edge_irq);
+		break;
+	case IRQ_TYPE_EDGE_FALLING:
+		mask = 0x0 << shift;
+		__set_irq_handler_unlocked(irq, handle_edge_irq);
+		break;
+	case IRQ_TYPE_LEVEL_HIGH:
+		mask = 0x3 << shift;
+		__set_irq_handler_unlocked(irq, handle_level_irq);
+		break;
+	case IRQ_TYPE_LEVEL_LOW:
+		mask = 0x2 << shift;
+		__set_irq_handler_unlocked(irq, handle_level_irq);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (pin < 8)
+		reg = PINTCR3A;
+	else if (pin < 16)
+		reg = PINTCR2A;
+	else if (pin < 24)
+		reg = PINTCR1A;
+	else if (pin < 32)
+		reg = PINTCR0A;
+	else
+		reg = PINTCR4A;
+
+	spin_lock_irqsave(&pint_lock, flag);
+	writew((readw(reg) & ~(0x3<<shift)) | mask, reg);
+	spin_unlock_irqrestore(&pint_lock, flag);
+
+	desc->status = (desc->status & ~IRQ_TYPE_SENSE_MASK) | type;
+
+	return 0;
+}
+
+static void pint_irq_ack(unsigned int irq)
+{
+	u32 pin = irq - PINT_IRQ_BASE;
+	u32 mask = 1 << (pin & 0x1f);
+	u32 reg = (pin & 0x20) ? PINTRR1A : PINTRR0A;
+	unsigned long flag;
+
+	spin_lock_irqsave(&pint_lock, flag);
+	writel(readl(reg) & ~mask, reg);
+	spin_unlock_irqrestore(&pint_lock, flag);
+}
+
+static void pint_irq_mask(unsigned int irq)
+{
+	u32 pin = irq - PINT_IRQ_BASE;
+	u32 mask = 1 << (pin & 0x1f);
+	u32 reg = (pin & 0x20) ? PINTER1A : PINTER0A;
+	unsigned long flag;
+
+	spin_lock_irqsave(&pint_lock, flag);
+	writel(readl(reg) & ~mask, reg);
+	spin_unlock_irqrestore(&pint_lock, flag);
+}
+
+static void pint_irq_unmask(unsigned int irq)
+{
+	u32 pin = irq - PINT_IRQ_BASE;
+	u32 mask = 1 << (pin & 0x1f);
+	u32 reg = (pin & 0x20) ? PINTER1A : PINTER0A;
+	unsigned long flag;
+
+	spin_lock_irqsave(&pint_lock, flag);
+	writel(readl(reg) | mask, reg);
+	spin_unlock_irqrestore(&pint_lock, flag);
+}
+
+static void pint_demux(unsigned int irq, struct irq_desc *desc)
+{
+	struct irq_chip *chip = get_irq_chip(irq);
+	struct irq_desc *d;
+	u32 status, pint_irq;
+	u32 reg = (irq == gic_spi(33)) ? PINTRR0A : PINTRR1A;
+	u32 mask_reg = (irq == gic_spi(33)) ? PINTER0A : PINTER1A;
+	u32 pint_irq_base = (irq == gic_spi(33)) ?
+			PINT_IRQ_BASE : PINT_IRQ_BASE + 32;
+
+	/* primary controller ack'ing */
+	chip->ack(irq);
+
+	do {
+		status = readl(reg) & readl(mask_reg);
+		if (status == 0)
+			break;
+
+		pint_irq = pint_irq_base;
+		while (status) {
+			if (status & 1) {
+				d = irq_to_desc(pint_irq);
+				d->handle_irq(pint_irq, d);
+			}
+			status >>= 1;
+			pint_irq++;
+		}
+	} while (1);
+
+	/* primary controller unmasking */
+	chip->unmask(irq);
+}
+
+static struct irq_chip pint_chip = {
+	.name     = "PINT",
+	.ack      = pint_irq_ack,
+	.mask     = pint_irq_mask,
+	.unmask   = pint_irq_unmask,
+	.set_type = pint_set_irq_type,
+	.disable  = pint_irq_mask,
+};
+
+static void setup_pint_irq(int base)
+{
+	int i;
+
+	__raw_writel(0, PINTRR0A);
+
+	for (i = base; i < base + 40; i++) {
+		set_irq_chip(i, &pint_chip);
+		set_irq_handler(i, handle_edge_irq);
+		set_irq_flags(i, IRQF_VALID);
+	}
+}
+
 void __init sh73a0_init_irq(void)
 {
 	void __iomem *intevtsa = ioremap_nocache(0xffd20100, PAGE_SIZE);
 
-	register_intc_controller(&intcs_desc);
+	/* Setup PINT cascade_irq */
+	setup_pint_irq(PINT_IRQ_BASE);
+	set_irq_chained_handler(gic_spi(33), pint_demux);
+	set_irq_chained_handler(gic_spi(34), pint_demux);
 
-	/* demux using INTEVTSA */
+	/* Setup INTCS cascade_irq */
+	register_intc_controller(&intcs_desc);
 	set_irq_data(gic_spi(50), (void *)intevtsa);
 	set_irq_chained_handler(gic_spi(50), intcs_demux);
 }
