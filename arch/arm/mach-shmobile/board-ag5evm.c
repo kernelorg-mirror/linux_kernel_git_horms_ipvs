@@ -314,6 +314,13 @@ static struct platform_device fsi_device = {
 	},
 };
 
+static struct i2c_board_info i2c0_devices[] = {
+	{
+		I2C_BOARD_INFO("ag5evm_ts", 0x20),
+		.irq	= pint2irq(12),	/* PINTC3 */
+	},
+};
+
 static struct i2c_board_info i2c1_devices[] = {
 	{
 		I2C_BOARD_INFO("led", 0x6d),
@@ -633,6 +640,7 @@ static int led_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_smbus_write_byte_data(client, 0x04, 0x07);
 	i2c_smbus_write_byte_data(client, 0x23, 0x80);
 	i2c_smbus_write_byte_data(client, 0x03, 0x01);
+	i2c_smbus_write_byte_data(client, 0x00, 0x01); /* ts power-on */
 
 	return led_classdev_register(&client->dev, &led_backlight);
 }
@@ -803,6 +811,11 @@ static void __init ag5evm_init(void)
 	udelay(1);
 	gpio_set_value(GPIO_PORT217, 1);
 
+	/* enable touchscreen */
+	gpio_request(GPIO_PORT12, NULL); /* RESET */
+	gpio_direction_output(GPIO_PORT12, 0);
+	gpio_request(GPIO_FN_SCIFA0_RTS_, NULL); /* PINTC3 */
+
 #ifdef CONFIG_CACHE_L2X0
 	/* Enable Dynamic clock gating */
 	__raw_writel(0x00000002, __io(0xf0100000) + L2X0_POWER_CTRL);
@@ -819,6 +832,7 @@ static void __init ag5evm_init(void)
 
 	sh73a0_add_standard_devices();
 
+	i2c_register_board_info(0, i2c0_devices, ARRAY_SIZE(i2c0_devices));
 	i2c_register_board_info(1, i2c1_devices, ARRAY_SIZE(i2c1_devices));
 	i2c_register_board_info(2, i2c2_devices, ARRAY_SIZE(i2c2_devices));
 	platform_add_devices(ag5evm_devices, ARRAY_SIZE(ag5evm_devices));
