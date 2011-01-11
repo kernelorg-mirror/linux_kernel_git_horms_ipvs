@@ -801,6 +801,64 @@ config CACHE_PL310
 	  This option enables optimisations for the PL310 cache
 	  controller.
 
+config CACHE_PL310_PREFETCH
+	bool
+	depends on CACHE_PL310
+	default y if CACHE_PL310_INSN_PREFETCH || CACHE_PL310_DATA_PREFETCH
+	help
+	  The prefetch operation is the capability of attempting to fetch
+	  cache lines from L3 in advance, to improve system performance.
+	  The following functionalities are available in the PL310:
+	  - Internal instruction and data prefetch engine
+	  - Double linefill issuing
+	  - Prefetch dropping
+
+config CACHE_PL310_INSN_PREFETCH
+	bool "PL310: Instruction prefetch"
+	depends on CACHE_PL310
+	help
+	  Say Y here to enable the PL310 instruction prefetch feature.
+
+config CACHE_PL310_DATA_PREFETCH
+	bool "PL310: Data prefetch"
+	depends on CACHE_PL310
+	help
+	  Say Y here to enable the PL310 data prefetch feature.
+
+config CACHE_PL310_PREFETCH_DOUBLE_LINEFILL
+	bool "prefetch feature: Double linefill issuing"
+	depends on CACHE_PL310 && CACHE_PL310_PREFETCH
+	help
+	  The L2C-310 cache line length is 32-byte. Therefore, by default,
+	  on each L2 cache miss, L2C-310 issues 32-byte linefills, 4 x 64-bit
+	  read bursts, to the L3 memory system.  L2C-310 can issue 64-byte
+	  linefills, 8 x 64-bit read bursts, on an L2 cache miss.  When
+	  the L2C-310 is waiting for the data from L3, it performs a lookup
+	  on the second cache line targeted by the 64-byte linefill.  If it
+	  misses, data corresponding to the second cache line are allocated
+	  to the L2 cache.  If it hits, data corresponding to the second
+	  cache line are discarded.
+
+	  Note:
+	  - Double linefills are not issued for prefetch reads if you enable
+	    exclusive cache configuration
+	  - Double linefills are not launched when crossing a 4KB boundary.
+
+config CACHE_PL310_PREFETCH_DROP
+	bool "prefetch feature: Prefetch dropping"
+	depends on CACHE_PL310 && CACHE_PL310_PREFETCH
+	help
+	  Prefetch accesses can use a large amount of the address slots
+	  present in the L2C-310 master ports.  This option prevents
+	  non-prefetch accesses being serviced, and affects performance.
+	  To counter this effect, L2C-310 can drop prefetch accesses.
+
+	  When enabled, if a resource conflict exists between prefetch
+	  and non-prefetch accesses in the L2C-310 master ports, prefetch
+	  accesses are dropped.  When data corresponding to these dropped
+	  prefetch accesses return from L3, they are discarded, and not
+	  allocated into the L2 cache.
+
 config CACHE_TAUROS2
 	bool "Enable the Tauros2 L2 cache controller"
 	depends on (ARCH_DOVE || ARCH_MMP)

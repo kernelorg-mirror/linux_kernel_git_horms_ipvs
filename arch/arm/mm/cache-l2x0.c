@@ -219,6 +219,7 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 {
 	__u32 aux;
 	__u32 cache_id;
+	__u32 prefetch, prefetch_val;
 	int ways;
 	const char *type;
 
@@ -226,6 +227,7 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 
 	cache_id = readl_relaxed(l2x0_base + L2X0_CACHE_ID);
 	aux = readl_relaxed(l2x0_base + L2X0_AUX_CTRL);
+	prefetch = readl_relaxed(l2x0_base + L2X0_PREFETCH_CTRL);
 
 	/* Determine the number of ways */
 	switch (cache_id & L2X0_CACHE_ID_PART_MASK) {
@@ -242,6 +244,36 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 		 * accesses as Cacheable no-allocate.
 		 */
 		aux_val |= 1 << 22;
+
+		/*
+		 * Enable internal instruction and data prefetching engine
+		 * if configured.
+		 */
+#ifdef CONFIG_CACHE_PL310_INSN_PREFETCH
+		aux_val |= 1 << 29;
+		prefetch_val |= 1 << 29;
+#endif
+#ifdef CONFIG_CACHE_PL310_DATA_PREFETCH
+		aux_val |= 1 << 28;
+		prefetch_val |= 1 << 28;
+#endif
+		/*
+		 * Enable prefetch-related features that can improve system
+		 * performance.  All bits in the prefetch control register
+		 * are set to zero by default, and we assume here that no
+		 * preceding softwares such as bootloaders set up these bits.
+		 */
+#ifdef CONFIG_CACHE_PL310_PREFETCH_DOUBLE_LINEFILL
+		/* safely available in r3p2 or later */
+		if ((cache_id & 0x3f) > 0x6)
+			prefetch_val |= 1 << 30;
+			/* bit 27 and 23 are left unused for now */
+#endif
+#ifdef CONFIG_CACHE_PL310_PREFETCH_DROP
+		/* safely available in r3p1 or later */
+		if ((cache_id & 0x3f) > 0x5)
+			prefetch_val |= 1 << 24;
+#endif
 		break;
 	case L2X0_CACHE_ID_PART_L210:
 		ways = (aux >> 13) & 0xf;
@@ -264,9 +296,11 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 	if (!(readl_relaxed(l2x0_base + L2X0_CTRL) & 1)) {
 		aux &= aux_mask;
 		aux |= aux_val;
+		prefetch |= prefetch_val;
 
 		/* l2x0 controller is disabled */
 		writel_relaxed(aux, l2x0_base + L2X0_AUX_CTRL);
+		writel_relaxed(prefetch, l2x0_base + L2X0_PREFETCH_CTRL);
 
 		l2x0_inv_all();
 
@@ -280,6 +314,6 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 	outer_cache.sync = l2x0_cache_sync;
 
 	printk(KERN_INFO "%s cache controller enabled\n", type);
-	printk(KERN_INFO "l2x0: %d ways, CACHE_ID 0x%08x, AUX_CTRL 0x%08x\n",
-			 ways, cache_id, aux);
+	printk(KERN_INFO "l2x0: %d ways, CACHE_ID 0x%08x, AUX_CTRL 0x%08x, PREFETCH_CTRL 0x%08x\n",
+			 ways, cache_id, aux, prefetch);
 }
