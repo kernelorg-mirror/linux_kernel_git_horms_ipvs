@@ -1079,6 +1079,21 @@ config ARM_ERRATA_743622
 	  visible impact on the overall performance or power consumption of the
 	  processor.
 
+config ARM_ERRATA_751472
+	bool "ARM errata: An interrupted ICIALLUIS operation may prevent the completion of a following broadcasted operation"
+	depends on CPU_V7 && SMP
+	help
+	  This option enables the workaround for the 751472 Cortex-A9 MPCore
+	  (prior to r3p0) erratum. In an MPCore configuration with 2 processors
+	  or more working in SMP mode with maintenance operation broadcast
+	  enabled, if a processor is interrupted while executing an ICIALLUIS
+	  operation, and performs another broadcasted maintenance operation
+	  during its Interrupt Service Routine, then this second operation may
+	  not be executed on the other processors in the cluster.  This
+	  workaround sets a bit in the diagnostic register of the Cortex-A9,
+	  preventing CP15 maintenance operations from being interrupted.  This
+	  is not expected to cause any visible impact in the system.
+
 endmenu
 
 source "arch/arm/common/Kconfig"
