@@ -260,6 +260,10 @@ __v7_setup:
 	teq	r6, #0x20			@ present in r2p0
 	teqne	r6, #0x21			@ present in r2p1
 	teqne	r6, #0x22			@ present in r2p2
+	teqne	r6, #0x25			@ present in r2p5
+	teqne	r6, #0x26			@ present in r2p6
+	teqne	r6, #0x27			@ present in r2p7
+	teqne	r6, #0x28			@ present in r2p8
 	mrceq	p15, 0, r10, c15, c0, 1		@ read diagnostic register
 	orreq	r10, r10, #1 << 6		@ set bit #6
 	mcreq	p15, 0, r10, c15, c0, 1		@ write diagnostic register
