@@ -609,4 +609,10 @@ config TOUCHSCREEN_TPS6507X
 	  To compile this driver as a module, choose M here: the
 	  module will be called tps6507x_ts.
 
+config TOUCHSCREEN_AG5EVM
+	tristate "Touchscreen on AG5EVM LCD sub-board"
+	depends on I2C && MACH_AG5EVM
+	help
+	  Say Y here to support touchscreen on AG5EVM LCD sub-board.
+
 endif
