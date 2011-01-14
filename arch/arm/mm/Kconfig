@@ -859,6 +859,15 @@ config CACHE_PL310_PREFETCH_DROP
 	  prefetch accesses return from L3, they are discarded, and not
 	  allocated into the L2 cache.
 
+config CACHE_PL310_DYNAMIC_CLOCK_GATING
+	bool "PL310: Dynamic clock gating"
+	depends on CACHE_PL310
+	help
+	  When you enable the dynamic high-level clock-gating feature,
+	  the cache controller stops its clock when it is idle.  It does
+	  not stop the clock immediately when it is idle, but after it
+	  counts several clock cycles.
+
 config CACHE_TAUROS2
 	bool "Enable the Tauros2 L2 cache controller"
 	depends on (ARCH_DOVE || ARCH_MMP)

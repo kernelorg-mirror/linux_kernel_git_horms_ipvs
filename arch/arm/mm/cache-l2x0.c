@@ -220,6 +220,7 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 	__u32 aux;
 	__u32 cache_id;
 	__u32 prefetch, prefetch_val = 0;
+	__u32 power;
 	int ways;
 	const char *type;
 
@@ -228,6 +229,7 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 	cache_id = readl_relaxed(l2x0_base + L2X0_CACHE_ID);
 	aux = readl_relaxed(l2x0_base + L2X0_AUX_CTRL);
 	prefetch = readl_relaxed(l2x0_base + L2X0_PREFETCH_CTRL);
+	power = readl_relaxed(l2x0_base + L2X0_POWER_CTRL);
 
 	/* Determine the number of ways */
 	switch (cache_id & L2X0_CACHE_ID_PART_MASK) {
@@ -274,6 +276,9 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 		if ((cache_id & 0x3f) > 0x5)
 			prefetch_val |= 1 << 24;
 #endif
+#ifdef CONFIG_CACHE_PL310_DYNAMIC_CLOCK_GATING
+		power |= 1 << 1;
+#endif
 		break;
 	case L2X0_CACHE_ID_PART_L210:
 		ways = (aux >> 13) & 0xf;
@@ -301,6 +306,7 @@ void __init l2x0_init(void __iomem *base, __u32 aux_val, __u32 aux_mask)
 		/* l2x0 controller is disabled */
 		writel_relaxed(aux, l2x0_base + L2X0_AUX_CTRL);
 		writel_relaxed(prefetch, l2x0_base + L2X0_PREFETCH_CTRL);
+		writel_relaxed(power, l2x0_base + L2X0_POWER_CTRL);
 
 		l2x0_inv_all();
 
