@@ -283,12 +283,20 @@ __v7_setup:
 	mrc	p15, 0, r10, c1, c0, 1		@ read aux control register
 	orr	r10, r10, #1 << 2		@ set L1 prefetch enable bit
 	mcr	p15, 0, r10, c1, c0, 1		@ write aux control register
-#endif
 
-#ifdef CONFIG_CACHE_PL310_PREFETCH
+#if defined(CONFIG_CACHE_PL310_PREFETCH) && defined(CONFIG_SMP)
+	/*
+	 * When Cortex-A9 MPCore is configured to run in SMP mode,
+	 * the automatic data prefetchers issue special read accesses
+	 * to the L2CC(L2C-310), called Prefetch Hints.
+	 *
+	 * This feature should be enabled only when all the conditions
+	 * are satisfied.
+	 */
 	mrc	p15, 0, r10, c1, c0, 1		@ read aux control register
 	orr	r10, r10, #1 << 1		@ set L2 prefetch hint enable bit
 	mcr	p15, 0, r10, c1, c0, 1		@ write aux control register
+#endif
 #endif
 
 3:	mov	r10, #0
