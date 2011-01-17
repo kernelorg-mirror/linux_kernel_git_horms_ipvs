@@ -284,7 +284,7 @@ __v7_setup:
 	orr	r10, r10, #1 << 2		@ set L1 prefetch enable bit
 	mcr	p15, 0, r10, c1, c0, 1		@ write aux control register
 
-#if defined(CONFIG_CACHE_PL310_PREFETCH) && defined(CONFIG_SMP)
+#ifdef CONFIG_SMP
 	/*
 	 * When Cortex-A9 MPCore is configured to run in SMP mode,
 	 * the automatic data prefetchers issue special read accesses
