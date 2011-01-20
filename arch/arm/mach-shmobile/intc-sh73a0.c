@@ -356,11 +356,8 @@ static void pint_irq_ack(unsigned int irq)
 	u32 pin = irq - PINT_IRQ_BASE;
 	u32 mask = 1 << (pin & 0x1f);
 	u32 reg = (pin & 0x20) ? PINTRR1A : PINTRR0A;
-	unsigned long flag;
 
-	spin_lock_irqsave(&pint_lock, flag);
 	writel(readl(reg) & ~mask, reg);
-	spin_unlock_irqrestore(&pint_lock, flag);
 }
 
 static void pint_irq_mask(unsigned int irq)
