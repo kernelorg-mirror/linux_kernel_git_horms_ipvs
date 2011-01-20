@@ -20,6 +20,10 @@
 #define SOFT_IRQ_BASE		(512 - 16)
 #define soft_irq(nr)		((nr) + SOFT_IRQ_BASE)
 
+/* IRQ pin (for sh73a0) */
+#define IRQPIN_IRQ_BASE		256
+#define irqpin2irq(nr)		(IRQPIN_IRQ_BASE + (nr))
+
 /* PINT (for sh73a0) */
 #define PINT_IRQ_BASE		512
 #define pint2irq(bit)		(PINT_IRQ_BASE + (bit))

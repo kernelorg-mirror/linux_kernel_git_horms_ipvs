@@ -291,17 +291,151 @@ static void intcs_demux(unsigned int irq, struct irq_desc *desc)
 	chip->unmask(irq);
 }
 
+/* IRQ pin */
+#define INTC_ADDR	0xe6900000
+#define ICR1A		(INTC_ADDR + 0x00)	/* 32-bit */
+#define ICR2A		(INTC_ADDR + 0x04)	/* 32-bit */
+#define ICR3A		(INTC_ADDR + 0x08)	/* 32-bit */
+#define ICR4A		(INTC_ADDR + 0x0c)	/* 32-bit */
+#define INTREQ00A	(INTC_ADDR + 0x20)	/* 8-bit */
+#define INTREQ10A	(INTC_ADDR + 0x24)	/* 8-bit */
+#define INTREQ20A	(INTC_ADDR + 0x28)	/* 8-bit */
+#define INTREQ30A	(INTC_ADDR + 0x2c)	/* 8-bit */
+
+static DEFINE_SPINLOCK(irqpin_lock);
+
+static int irqpin_set_irq_type(unsigned int irq, unsigned int type)
+{
+	u32 irqpin = irq - IRQPIN_IRQ_BASE;
+	u32 shift = (~irqpin & 0x7) << 2;
+	u32 mask, reg;
+
+	switch (type & IRQ_TYPE_SENSE_MASK) {
+	case IRQ_TYPE_EDGE_RISING:
+		mask = 0x1 << shift;
+		__set_irq_handler_unlocked(irq, handle_edge_irq);
+		break;
+	case IRQ_TYPE_EDGE_FALLING:
+		mask = 0x0 << shift;
+		__set_irq_handler_unlocked(irq, handle_edge_irq);
+		break;
+	case IRQ_TYPE_LEVEL_HIGH:
+		mask = 0x3 << shift;
+		__set_irq_handler_unlocked(irq, handle_level_irq);
+		break;
+	case IRQ_TYPE_LEVEL_LOW:
+		mask = 0x2 << shift;
+		__set_irq_handler_unlocked(irq, handle_level_irq);
+		break;
+	case IRQ_TYPE_EDGE_BOTH:
+		mask = 0x4 << shift;
+		__set_irq_handler_unlocked(irq, handle_edge_irq);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	reg = (irqpin & 0x10) ? ((irqpin & 0x08) ? ICR4A : ICR3A) :
+				((irqpin & 0x08) ? ICR2A : ICR1A);
+
+	spin_lock(&irqpin_lock);
+	__raw_writel((__raw_readl(reg) & ~(0xf << shift)) | mask, reg);
+	spin_unlock(&irqpin_lock);
+
+	return 0;
+}
+
+static void irqpin_irq_ack(unsigned int irq)
+{
+	u32 irqpin = irq - IRQPIN_IRQ_BASE;
+	u8  mask = 1 << (~irqpin & 0x7);
+	u32 reg = (irqpin & 0x10) ? ((irqpin & 0x08) ? INTREQ30A : INTREQ20A) :
+				    ((irqpin & 0x08) ? INTREQ10A : INTREQ00A);
+
+	__raw_readb(reg); /* be sure to read the register */
+	__raw_writeb(~mask, reg);
+}
+
+/*
+ * If IRQ pins interrupts are served via the GIC, the INTMSK00A..INTMSK30A
+ * registers in the INTCA0, which are supposed to mask IRQ pins interrupts,
+ * are _not_usable_.  Use mask and unmask operations of the GIC, instead.
+ */
+static void irqpin_irq_mask(unsigned int irq)
+{
+	u32 gicirq = irq - IRQPIN_IRQ_BASE + gic_spi(1);
+	struct irq_chip *chip = get_irq_chip(gicirq);
+
+	chip->mask(gicirq);
+}
+
+static void irqpin_irq_unmask(unsigned int irq)
+{
+	u32 gicirq = irq - IRQPIN_IRQ_BASE + gic_spi(1);
+	struct irq_chip *chip = get_irq_chip(gicirq);
+
+	chip->unmask(gicirq);
+}
+
+/*
+ * IRQ pins interrupts IRQ0..IRQ31 are wired up to the GIC-SPI (1..32),
+ * respectively (1:1 mapping)
+ */
+static void irqpin_demux(unsigned int irq, struct irq_desc *desc)
+{
+	struct irq_chip *chip = get_irq_chip(irq);
+	u32 irqpin_irq = IRQPIN_IRQ_BASE + irq - gic_spi(1);
+
+	/* primary controller ack'ing */
+	chip->ack(irq);
+
+	generic_handle_irq(irqpin_irq);
+
+	/* primary controller unmasking */
+	chip->unmask(irq);
+}
+
+static struct irq_chip irqpin_chip = {
+	.name     = "IRQ pin",
+	.ack      = irqpin_irq_ack,
+	.mask     = irqpin_irq_mask,
+	.unmask   = irqpin_irq_unmask,
+	.set_type = irqpin_set_irq_type,
+	.disable  = irqpin_irq_mask,
+};
+
+static void setup_irqpin_irq(int base)
+{
+	int i;
+
+	/* Load h/w initial value 4'b0000 (detected at a falling edge) */
+	__raw_writel(0, ICR1A);
+	__raw_writel(0, ICR2A);
+	__raw_writel(0, ICR3A);
+	__raw_writel(0, ICR4A);
+
+	__raw_writeb(0, INTREQ00A);
+	__raw_writeb(0, INTREQ10A);
+	__raw_writeb(0, INTREQ20A);
+	__raw_writeb(0, INTREQ30A);
+
+	for (i = base; i < base + 32; i++) {
+		set_irq_chip(i, &irqpin_chip);
+		set_irq_handler(i, handle_edge_irq);
+		set_irq_flags(i, IRQF_VALID);
+	}
+}
+
 /* PINT */
-#define PINTC_ADDR	0xe6900000
-#define PINTER0A	(PINTC_ADDR + 0xa0)	/* 32bit */
-#define PINTER1A	(PINTC_ADDR + 0xa4)	/* 32bit */
-#define PINTCR0A	(PINTC_ADDR + 0xb0)	/* 16bit */
-#define PINTCR1A	(PINTC_ADDR + 0xb4)	/* 16bit */
-#define PINTCR2A	(PINTC_ADDR + 0xb8)	/* 16bit */
-#define PINTCR3A	(PINTC_ADDR + 0xbc)	/* 16bit */
-#define PINTCR4A	(PINTC_ADDR + 0xc0)	/* 16bit */
-#define PINTRR0A	(PINTC_ADDR + 0xd0)	/* 32bit */
-#define PINTRR1A	(PINTC_ADDR + 0xd4)	/* 32bit */
+#define PINTER0A	(INTC_ADDR + 0xa0)	/* 32-bit */
+#define PINTER1A	(INTC_ADDR + 0xa4)	/* 32-bit */
+#define PINTCR0A	(INTC_ADDR + 0xb0)	/* 16-bit */
+#define PINTCR1A	(INTC_ADDR + 0xb4)	/* 16-bit */
+#define PINTCR2A	(INTC_ADDR + 0xb8)	/* 16-bit */
+#define PINTCR3A	(INTC_ADDR + 0xbc)	/* 16-bit */
+#define PINTCR4A	(INTC_ADDR + 0xc0)	/* 16-bit */
+#define PINTRR0A	(INTC_ADDR + 0xd0)	/* 32-bit */
+#define PINTRR1A	(INTC_ADDR + 0xd4)	/* 32-bit */
 
 static DEFINE_SPINLOCK(pint_lock);
 
@@ -484,6 +618,14 @@ static void setup_pint_irq(int base)
 void __init sh73a0_init_irq(void)
 {
 	void __iomem *intevtsa = ioremap_nocache(0xffd20100, PAGE_SIZE);
+	int i;
+
+	/* Setup IRQ-pin cascade_irq */
+	setup_irqpin_irq(IRQPIN_IRQ_BASE);
+	for (i = gic_spi(1); i <= gic_spi(32); i++) {
+		set_irq_handler(i, irqpin_demux);
+		set_irq_flags(i, IRQ_NOREQUEST | IRQ_NOPROBE);
+	}
 
 	/* Setup PINT cascade_irq */
 	setup_pint_irq(PINT_IRQ_BASE);
