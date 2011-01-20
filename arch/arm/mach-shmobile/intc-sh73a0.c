@@ -310,7 +310,6 @@ static int pint_set_irq_type(unsigned int irq, unsigned int type)
 	u32 pin = irq - PINT_IRQ_BASE;
 	u32 shift = (pin & 0x07) << 1;
 	u32 mask, reg;
-	unsigned long flag;
 
 	switch (type & IRQ_TYPE_SENSE_MASK) {
 	case IRQ_TYPE_EDGE_RISING:
@@ -344,9 +343,9 @@ static int pint_set_irq_type(unsigned int irq, unsigned int type)
 	else
 		reg = PINTCR4A;
 
-	spin_lock_irqsave(&pint_lock, flag);
+	spin_lock(&pint_lock);
 	writew((readw(reg) & ~(0x3<<shift)) | mask, reg);
-	spin_unlock_irqrestore(&pint_lock, flag);
+	spin_unlock(&pint_lock);
 
 	return 0;
 }
@@ -365,11 +364,10 @@ static void pint_irq_mask(unsigned int irq)
 	u32 pin = irq - PINT_IRQ_BASE;
 	u32 mask = 1 << (pin & 0x1f);
 	u32 reg = (pin & 0x20) ? PINTER1A : PINTER0A;
-	unsigned long flag;
 
-	spin_lock_irqsave(&pint_lock, flag);
+	spin_lock(&pint_lock);
 	writel(readl(reg) & ~mask, reg);
-	spin_unlock_irqrestore(&pint_lock, flag);
+	spin_unlock(&pint_lock);
 }
 
 static void pint_irq_unmask(unsigned int irq)
@@ -377,11 +375,10 @@ static void pint_irq_unmask(unsigned int irq)
 	u32 pin = irq - PINT_IRQ_BASE;
 	u32 mask = 1 << (pin & 0x1f);
 	u32 reg = (pin & 0x20) ? PINTER1A : PINTER0A;
-	unsigned long flag;
 
-	spin_lock_irqsave(&pint_lock, flag);
+	spin_lock(&pint_lock);
 	writel(readl(reg) | mask, reg);
-	spin_unlock_irqrestore(&pint_lock, flag);
+	spin_unlock(&pint_lock);
 }
 
 static void pint_demux(unsigned int irq, struct irq_desc *desc)
