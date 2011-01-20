@@ -80,6 +80,8 @@
 /* CKG1 */
 #define ACKMD_MASK	0x00007000
 #define BPFMD_MASK	0x00000700
+#define DIMD		(1 << 4)
+#define DOMD		(1 << 0)
 
 /* A/B MST_CTLR */
 #define BP	(1 << 4)	/* Fix the signal of Biphase output */
@@ -286,21 +288,6 @@ static inline struct fsi_stream *fsi_get_stream(struct fsi_priv *fsi,
 						int is_play)
 {
 	return is_play ? &fsi->playback : &fsi->capture;
-}
-
-static int fsi_is_master_mode(struct fsi_priv *fsi, int is_play)
-{
-	u32 mode;
-	u32 flags = fsi_get_info_flags(fsi);
-
-	mode = is_play ? SH_FSI_OUT_SLAVE_MODE : SH_FSI_IN_SLAVE_MODE;
-
-	/* return
-	 * 1 : master mode
-	 * 0 : slave mode
-	 */
-
-	return (mode & flags) != mode;
 }
 
 static u32 fsi_get_port_shift(struct fsi_priv *fsi, int is_play)
@@ -760,7 +747,6 @@ static int fsi_dai_startup(struct snd_pcm_substream *substream,
 	u32 fmt;
 	u32 data;
 	int is_play = fsi_is_play(substream);
-	int is_master;
 
 	io = fsi_get_stream(fsi, is_play);
 
@@ -772,14 +758,6 @@ static int fsi_dai_startup(struct snd_pcm_substream *substream,
 	fsi_master_mask_set(master, HPB_SRST, (1 << 20), 0x0);
 	fsi_master_mask_set(master, HPB_SRST, (1 << 20), (1 << 20));
 	fsi_reg_write(fsi, OUT_DMAC, (0x1 << 4));
-
-	/* CKG1 */
-	data = is_play ? (1 << 0) : (1 << 4);
-	is_master = fsi_is_master_mode(fsi, is_play);
-	if (is_master)
-		fsi_reg_mask_set(fsi, CKG1, data, data);
-	else
-		fsi_reg_mask_set(fsi, CKG1, data, 0);
 
 	/* clock inversion (CKG2) */
 	data = 0;
@@ -889,6 +867,34 @@ static int fsi_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 	return ret;
 }
 
+static int fsi_dai_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+{
+	struct fsi_priv *fsi = fsi_get_priv_frm_dai(dai);
+	u32 data = 0;
+	int ret;
+
+	pm_runtime_get_sync(dai->dev);
+
+	/* set master/slave audio interface */
+	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
+	case SND_SOC_DAIFMT_CBM_CFM:
+		data = DIMD | DOMD;
+		break;
+	case SND_SOC_DAIFMT_CBS_CFS:
+		break;
+	default:
+		ret = -EINVAL;
+		goto set_fmt_exit;
+	}
+	fsi_reg_mask_set(fsi, CKG1, (DIMD | DOMD), data);
+	ret = 0;
+
+set_fmt_exit:
+	pm_runtime_put_sync(dai->dev);
+
+	return ret;
+}
+
 static int fsi_dai_hw_params(struct snd_pcm_substream *substream,
 			     struct snd_pcm_hw_params *params,
 			     struct snd_soc_dai *dai)
@@ -897,12 +903,7 @@ static int fsi_dai_hw_params(struct snd_pcm_substream *substream,
 	struct fsi_master *master = fsi_get_master(fsi);
 	int (*set_rate)(int is_porta, int rate) = master->info->set_rate;
 	int fsi_ver = master->core->ver;
-	int is_play = fsi_is_play(substream);
 	int ret;
-
-	/* if slave mode, set_rate is not needed */
-	if (!fsi_is_master_mode(fsi, is_play))
-		return 0;
 
 	/* it is error if no set_rate */
 	if (!set_rate)
@@ -980,6 +981,7 @@ static struct snd_soc_dai_ops fsi_dai_ops = {
 	.startup	= fsi_dai_startup,
 	.shutdown	= fsi_dai_shutdown,
 	.trigger	= fsi_dai_trigger,
+	.set_fmt	= fsi_dai_set_fmt,
 	.hw_params	= fsi_dai_hw_params,
 };
 
