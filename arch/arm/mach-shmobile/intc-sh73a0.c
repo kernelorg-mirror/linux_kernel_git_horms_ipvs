@@ -393,7 +393,6 @@ static void pint_irq_unmask(unsigned int irq)
 static void pint_demux(unsigned int irq, struct irq_desc *desc)
 {
 	struct irq_chip *chip = get_irq_chip(irq);
-	struct irq_desc *d;
 	u32 status, pint_irq;
 	u32 reg = (irq == gic_spi(33)) ? PINTRR0A : PINTRR1A;
 	u32 mask_reg = (irq == gic_spi(33)) ? PINTER0A : PINTER1A;
@@ -410,10 +409,8 @@ static void pint_demux(unsigned int irq, struct irq_desc *desc)
 
 		pint_irq = pint_irq_base;
 		while (status) {
-			if (status & 1) {
-				d = irq_to_desc(pint_irq);
-				d->handle_irq(pint_irq, d);
-			}
+			if (status & 1)
+				generic_handle_irq(pint_irq);
 			status >>= 1;
 			pint_irq++;
 		}
