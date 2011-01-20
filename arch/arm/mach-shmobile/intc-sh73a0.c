@@ -434,6 +434,7 @@ static void setup_pint_irq(int base)
 	int i;
 
 	__raw_writel(0, PINTRR0A);
+	__raw_writel(0, PINTRR1A);
 
 	for (i = base; i < base + 40; i++) {
 		set_irq_chip(i, &pint_chip);
