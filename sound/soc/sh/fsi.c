@@ -253,11 +253,14 @@ static struct snd_soc_dai *fsi_get_dai(struct snd_pcm_substream *substream)
 	return  machine->cpu_dai;
 }
 
+static struct fsi_priv *fsi_get_priv_frm_dai(struct snd_soc_dai *dai)
+{
+	return dai->private_data;
+}
+
 static struct fsi_priv *fsi_get_priv(struct snd_pcm_substream *substream)
 {
-	struct snd_soc_dai *dai = fsi_get_dai(substream);
-
-	return dai->private_data;
+	return fsi_get_priv_frm_dai(fsi_get_dai(substream));
 }
 
 static u32 fsi_get_info_flags(struct fsi_priv *fsi)
