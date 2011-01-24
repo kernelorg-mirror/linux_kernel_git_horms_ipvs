@@ -307,7 +307,6 @@ static DEFINE_SPINLOCK(pint_lock);
 
 static int pint_set_irq_type(unsigned int irq, unsigned int type)
 {
-	struct irq_desc *desc = irq_to_desc(irq);
 	u32 pin = irq - PINT_IRQ_BASE;
 	u32 shift = (pin & 0x07) << 1;
 	u32 mask, reg;
@@ -348,8 +347,6 @@ static int pint_set_irq_type(unsigned int irq, unsigned int type)
 	spin_lock_irqsave(&pint_lock, flag);
 	writew((readw(reg) & ~(0x3<<shift)) | mask, reg);
 	spin_unlock_irqrestore(&pint_lock, flag);
-
-	desc->status = (desc->status & ~IRQ_TYPE_SENSE_MASK) | type;
 
 	return 0;
 }
