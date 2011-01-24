@@ -115,6 +115,8 @@
 
 #define FSI_FMTS (SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S16_LE)
 
+typedef int (*set_rate_func)(int is_porta, int rate);
+
 /*
  * FSI driver use below type name for variable
  *
@@ -265,10 +267,21 @@ static struct fsi_priv *fsi_get_priv(struct snd_pcm_substream *substream)
 	return fsi_get_priv_frm_dai(fsi_get_dai(substream));
 }
 
+static set_rate_func fsi_get_info_set_rate(struct fsi_master *master)
+{
+	if (!master->info)
+		return NULL;
+
+	return master->info->set_rate;
+}
+
 static u32 fsi_get_info_flags(struct fsi_priv *fsi)
 {
 	int is_porta = fsi_is_port_a(fsi);
 	struct fsi_master *master = fsi_get_master(fsi);
+
+	if (!master->info)
+		return 0;
 
 	return is_porta ? master->info->porta_flags :
 		master->info->portb_flags;
@@ -897,9 +910,11 @@ static int fsi_dai_hw_params(struct snd_pcm_substream *substream,
 {
 	struct fsi_priv *fsi = fsi_get_priv(substream);
 	struct fsi_master *master = fsi_get_master(fsi);
-	int (*set_rate)(int is_porta, int rate) = master->info->set_rate;
+	set_rate_func set_rate;
 	int fsi_ver = master->core->ver;
 	int ret;
+
+	set_rate = fsi_get_info_set_rate(master);
 
 	/* it is error if no set_rate */
 	if (!set_rate)
