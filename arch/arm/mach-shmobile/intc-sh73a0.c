@@ -357,7 +357,7 @@ static void pint_irq_ack(unsigned int irq)
 	u32 mask = 1 << (pin & 0x1f);
 	u32 reg = (pin & 0x20) ? PINTRR1A : PINTRR0A;
 
-	writel(readl(reg) & ~mask, reg);
+	writel(~mask, reg);
 }
 
 static void pint_irq_mask(unsigned int irq)
