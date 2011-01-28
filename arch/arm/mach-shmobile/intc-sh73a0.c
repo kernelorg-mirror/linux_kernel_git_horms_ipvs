@@ -308,7 +308,7 @@ static DEFINE_SPINLOCK(pint_lock);
 static int pint_set_irq_type(unsigned int irq, unsigned int type)
 {
 	u32 pin = irq - PINT_IRQ_BASE;
-	u32 shift = (pin & 0x07) << 1;
+	u32 shift = (~pin & 0x07) << 1;
 	u32 mask, reg;
 
 	switch (type & IRQ_TYPE_SENSE_MASK) {
@@ -332,16 +332,9 @@ static int pint_set_irq_type(unsigned int irq, unsigned int type)
 		return -EINVAL;
 	}
 
-	if (pin < 8)
-		reg = PINTCR3A;
-	else if (pin < 16)
-		reg = PINTCR2A;
-	else if (pin < 24)
-		reg = PINTCR1A;
-	else if (pin < 32)
-		reg = PINTCR0A;
-	else
-		reg = PINTCR4A;
+	reg =	(pin & 0x20) ? PINTCR4A :
+		((pin & 0x10) ? ((pin & 0x08) ? PINTCR3A : PINTCR2A) :
+				((pin & 0x08) ? PINTCR1A : PINTCR0A));
 
 	spin_lock(&pint_lock);
 	writew((readw(reg) & ~(0x3<<shift)) | mask, reg);
@@ -353,7 +346,7 @@ static int pint_set_irq_type(unsigned int irq, unsigned int type)
 static void pint_irq_ack(unsigned int irq)
 {
 	u32 pin = irq - PINT_IRQ_BASE;
-	u32 mask = 1 << (pin & 0x1f);
+	u32 mask = 1 << (~pin & 0x1f);
 	u32 reg = (pin & 0x20) ? PINTRR1A : PINTRR0A;
 
 	writel(~mask, reg);
@@ -362,7 +355,7 @@ static void pint_irq_ack(unsigned int irq)
 static void pint_irq_mask(unsigned int irq)
 {
 	u32 pin = irq - PINT_IRQ_BASE;
-	u32 mask = 1 << (pin & 0x1f);
+	u32 mask = 1 << (~pin & 0x1f);
 	u32 reg = (pin & 0x20) ? PINTER1A : PINTER0A;
 
 	spin_lock(&pint_lock);
@@ -373,7 +366,7 @@ static void pint_irq_mask(unsigned int irq)
 static void pint_irq_unmask(unsigned int irq)
 {
 	u32 pin = irq - PINT_IRQ_BASE;
-	u32 mask = 1 << (pin & 0x1f);
+	u32 mask = 1 << (~pin & 0x1f);
 	u32 reg = (pin & 0x20) ? PINTER1A : PINTER0A;
 
 	spin_lock(&pint_lock);
@@ -381,6 +374,42 @@ static void pint_irq_unmask(unsigned int irq)
 	spin_unlock(&pint_lock);
 }
 
+/*
+ * PINT IRQs vs. the PINTRR, PINTER registers
+ *
+ *  + PINTA ---------+ PINTB ---------+ PINTC ---------+ PINTD ---------+
+ *  | 0 1 2 3 4 5 6 7| 0 1 2 3 4 5 6 7| 0 1 2 3 4 5 6 7| 0 1 2 3 4 5 6 7|
+ *  +----------------+----------------+----------------+----------------+
+ *   31            24 23            16 15             8  7             0
+ *
+ *  +----------------+----------------+----------------+ PINTE ---------+
+ *  |                |                |                | 0 1 2 3 4 5 6 7|
+ *  +----------------+----------------+----------------+----------------+
+ *   31            24 23            16 15             8  7             0
+ *
+ * IRQs of the PINT interrupts look basically like:
+ *
+ *      GIC-SPI IRQ             Source
+ *      -----------------       ------
+ *      PINT_IRQ_BASE + 0       PINTA0
+ *                      :         :
+ *                     31       PINTD7
+ *                      :
+ *                      :       (unused)
+ *                      :
+ *                     56       PINTE0
+ *                      :         :
+ *                     63       PINTE7
+ *
+ * We handle the IRQ according to _our_ priority which is:
+ *
+ * Highest ---- PINTA0
+ * Lowest  ---- PINTE7
+ *
+ * Note: there're in fact forty PINT interrupts in total, but we have to
+ * give sixty-four IRQ resources for them, due to messy bit positions of
+ * the PINTEn interrupts.
+ */
 static void pint_demux(unsigned int irq, struct irq_desc *desc)
 {
 	struct irq_chip *chip = get_irq_chip(irq);
@@ -400,9 +429,9 @@ static void pint_demux(unsigned int irq, struct irq_desc *desc)
 
 		pint_irq = pint_irq_base;
 		while (status) {
-			if (status & 1)
+			if (status & (1UL << 31))
 				generic_handle_irq(pint_irq);
-			status >>= 1;
+			status <<= 1;
 			pint_irq++;
 		}
 	} while (1);
@@ -437,7 +466,15 @@ static void setup_pint_irq(int base)
 	__raw_writel(0, PINTRR0A);
 	__raw_writel(0, PINTRR1A);
 
-	for (i = base; i < base + 40; i++) {
+	/* PINTA0..PINTD7 */
+	for (i = base; i < base + 32; i++) {
+		set_irq_chip(i, &pint_chip);
+		set_irq_handler(i, handle_edge_irq);
+		set_irq_flags(i, IRQF_VALID);
+	}
+
+	/* PINTE0..PINTE7 */
+	for (i = base + 56; i < base + 64; i++) {
 		set_irq_chip(i, &pint_chip);
 		set_irq_handler(i, handle_edge_irq);
 		set_irq_flags(i, IRQF_VALID);

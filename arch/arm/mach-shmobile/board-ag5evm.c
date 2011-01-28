@@ -121,7 +121,7 @@ static struct resource smsc9220_resources[] = {
 		.flags		= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start		= pint2irq(29), /* PINTA2 */
+		.start		= pint2irq(2), /* PINTA2 */
 		.flags		= IORESOURCE_IRQ | IRQ_TYPE_LEVEL_LOW,
 	},
 };
@@ -317,7 +317,7 @@ static struct platform_device fsi_device = {
 static struct i2c_board_info i2c0_devices[] = {
 	{
 		I2C_BOARD_INFO("ag5evm_ts", 0x20),
-		.irq	= pint2irq(12),	/* PINTC3 */
+		.irq	= pint2irq(19),	/* PINTC3 */
 	},
 };
 
