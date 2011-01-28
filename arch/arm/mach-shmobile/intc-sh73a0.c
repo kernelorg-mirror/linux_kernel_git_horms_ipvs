@@ -433,6 +433,16 @@ static void setup_pint_irq(int base)
 {
 	int i;
 
+	__raw_writel(0, PINTER0A);
+	__raw_writel(0, PINTER1A);
+
+	/* Load h/w initial value 2'b00 (detected at a falling edge) */
+	__raw_writew(0, PINTCR0A);
+	__raw_writew(0, PINTCR1A);
+	__raw_writew(0, PINTCR2A);
+	__raw_writew(0, PINTCR3A);
+	__raw_writew(0, PINTCR4A);
+
 	__raw_writel(0, PINTRR0A);
 	__raw_writel(0, PINTRR1A);
 
