@@ -163,6 +163,22 @@ static struct platform_device scif7_device = {
 	},
 };
 
+static struct plat_sci_port scif8_platform_data = {
+	.mapbase	= 0xe6c30000,
+	.flags		= UPF_BOOT_AUTOCONF,
+	.type		= PORT_SCIFB,
+	.irqs		= { gic_spi(80), gic_spi(80),
+			    gic_spi(80), gic_spi(80) },
+};
+
+static struct platform_device scif8_device = {
+	.name		= "sh-sci",
+	.id		= 8,
+	.dev		= {
+		.platform_data	= &scif8_platform_data,
+	},
+};
+
 static struct sh_timer_config cmt10_platform_data = {
 	.name = "CMT10",
 	.channel_offset = 0x10,
@@ -558,6 +574,7 @@ static struct platform_device *sh73a0_early_devices[] __initdata = {
 	&scif5_device,
 	&scif6_device,
 	&scif7_device,
+	&scif8_device,
 	&cmt10_device,
 	&dma_device,
 };

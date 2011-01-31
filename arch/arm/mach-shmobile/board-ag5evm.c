@@ -720,6 +720,13 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_SCIFA2_RTS1_, NULL);
 	gpio_request(GPIO_FN_SCIFA2_CTS1_, NULL);
 
+	/* enable SCIFB */
+	gpio_request(GPIO_FN_PORT159_SCIFB_SCK, NULL);
+	gpio_request(GPIO_FN_PORT160_SCIFB_TXD, NULL);
+	gpio_request(GPIO_FN_PORT161_SCIFB_CTS_, NULL);
+	gpio_request(GPIO_FN_PORT162_SCIFB_RXD, NULL);
+	gpio_request(GPIO_FN_PORT163_SCIFB_RTS_, NULL);
+
 	/* enable SDHI0 */
 	gpio_request(GPIO_FN_SDHICD0, NULL);
 	gpio_request(GPIO_FN_SDHIWP0, NULL);
