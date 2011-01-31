@@ -346,7 +346,8 @@ static int scif_rxfill(struct uart_port *port)
 		return sci_in(port, SCFDR) & SCIF2_RFDC_MASK;
 	}
 }
-#elif defined(CONFIG_ARCH_SH7372)
+#elif defined(CONFIG_ARCH_SH7372) || \
+      defined(CONFIG_ARCH_SH73A0)
 static int scif_txfill(struct uart_port *port)
 {
 	if (port->type == PORT_SCIFA)
