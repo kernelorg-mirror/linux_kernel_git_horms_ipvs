@@ -193,18 +193,11 @@ struct sh_mmcif_host {
 	unsigned int            sg_off;
 
 	/* DMA support */
-	struct sh_dmae_slave param_tx;
-	struct sh_dmae_slave param_rx;
 	struct dma_chan		*chan_rx;
 	struct dma_chan		*chan_tx;
 	unsigned int		data_end;
 	unsigned int		dma_complete;
-
-#ifdef CONFIG_SH_DMAE
-	struct dma_async_tx_descriptor *desc;
 	unsigned int            dma_sglen;
-	dma_cookie_t		cookie;
-#endif
 };
 
 
@@ -599,7 +592,6 @@ static void sh_mmcif_start_cmd(struct sh_mmcif_host *host,
 	sh_mmcif_writel(host->addr, MMCIF_CE_CMD_SET, opc);
 }
 
-#ifdef CONFIG_SH_DMAE
 static void sh_mmcif_enable_dma(struct sh_mmcif_host *host, bool enable)
 {
 	if (enable)
@@ -625,13 +617,14 @@ static void sh_mmcif_dma_complete(void *arg)
 		sh_mmcif_do_data_irq(host);
 }
 
-static int sh_mmcif_start_dma(struct sh_mmcif_host *host,
+static void sh_mmcif_start_dma(struct sh_mmcif_host *host,
 			       struct mmc_data *data)
 {
 	struct scatterlist *sg = host->sg_ptr;
 	struct dma_async_tx_descriptor *desc = NULL;
 	struct dma_chan *chan = (data->flags & MMC_DATA_READ) ?
 		host->chan_rx : host->chan_tx;
+	dma_cookie_t cookie = -EINVAL;
 	int ret;
 	u32 flags = (data->flags & MMC_DATA_READ) ?
 			DMA_FROM_DEVICE : DMA_TO_DEVICE;
@@ -639,7 +632,7 @@ static int sh_mmcif_start_dma(struct sh_mmcif_host *host,
 	host->dma_complete = 0;
 
 	if (!chan)
-		return 0;
+		return;
 
 	ret = dma_map_sg(&host->pd->dev, sg, host->sg_len, flags);
 	if (ret > 0) {
@@ -649,24 +642,23 @@ static int sh_mmcif_start_dma(struct sh_mmcif_host *host,
 	}
 
 	if (desc) {
-		host->desc = desc;
 		desc->callback = sh_mmcif_dma_complete;
 		desc->callback_param = host;
-		host->cookie = desc->tx_submit(desc);
-		if (host->cookie < 0) {
-			host->desc = NULL;
-			ret = host->cookie;
-		} else {
+		cookie = desc->tx_submit(desc);
+		if (cookie < 0) {
+			desc = NULL;
+			ret = cookie;
+		} else
 			chan->device->device_issue_pending(chan);
-		}
 	}
 	dev_dbg(&host->pd->dev, "%s(): mapped %d -> %d, cookie %d, rq %p\n",
-		__func__, host->sg_len, ret, host->cookie, host->mrq);
+		__func__, host->sg_len, ret, cookie, host->mrq);
 
-	if (!host->desc) {
+	if (!desc) {
 		/* DMA failed, fall back to PIO */
 		if (ret >= 0)
 			ret = -EIO;
+		host->dma_sglen = 0;
 		/* Free the tx/rx channel */
 		chan = host->chan_rx;
 		if (chan) {
@@ -678,15 +670,13 @@ static int sh_mmcif_start_dma(struct sh_mmcif_host *host,
 			host->chan_tx = NULL;
 			dma_release_channel(chan);
 		}
-		sh_mmcif_enable_dma(host, 0);
 		dev_warn(&host->pd->dev,
 			 "DMA failed: %d, falling back to PIO\n", ret);
+		sh_mmcif_enable_dma(host, 0);
 	}
 
 	dev_dbg(&host->pd->dev, "%s(): desc %p, cookie %d, sg[%d]\n", __func__,
-		desc, host->cookie, host->sg_len);
-
-	return ret > 0 ? 0 : ret;
+		desc, cookie, host->sg_len);
 }
 
 static bool sh_mmcif_filter(struct dma_chan *chan, void *arg)
@@ -696,20 +686,18 @@ static bool sh_mmcif_filter(struct dma_chan *chan, void *arg)
 	return true;
 }
 
-static void sh_mmcif_request_dma(struct sh_mmcif_host *host)
+static void sh_mmcif_request_dma(struct sh_mmcif_host *host,
+				 struct sh_mmcif_plat_data *pdata)
 {
-	host->cookie = -EINVAL;
-	host->desc = NULL;
-
 	/* We can only either use DMA for both Tx and Rx or not use it at all */
-	if (host->param_tx.slave_id && host->param_rx.slave_id) {
+	if (pdata->dma) {
 		dma_cap_mask_t mask;
 
 		dma_cap_zero(mask);
 		dma_cap_set(DMA_SLAVE, mask);
 
 		host->chan_tx = dma_request_channel(mask, sh_mmcif_filter,
-						&host->param_tx);
+						    &pdata->dma->chan_priv_tx);
 		dev_dbg(&host->pd->dev, "%s: TX: got channel %p\n", __func__,
 			host->chan_tx);
 
@@ -717,7 +705,7 @@ static void sh_mmcif_request_dma(struct sh_mmcif_host *host)
 			return;
 
 		host->chan_rx = dma_request_channel(mask, sh_mmcif_filter,
-						&host->param_rx);
+						    &pdata->dma->chan_priv_rx);
 		dev_dbg(&host->pd->dev, "%s: RX: got channel %p\n", __func__,
 			host->chan_rx);
 
@@ -733,6 +721,7 @@ static void sh_mmcif_request_dma(struct sh_mmcif_host *host)
 
 static void sh_mmcif_release_dma(struct sh_mmcif_host *host)
 {
+	sh_mmcif_enable_dma(host, 0);
 	if (host->chan_tx) {
 		struct dma_chan *chan = host->chan_tx;
 		host->chan_tx = NULL;
@@ -743,40 +732,13 @@ static void sh_mmcif_release_dma(struct sh_mmcif_host *host)
 		host->chan_rx = NULL;
 		dma_release_channel(chan);
 	}
-
-	host->cookie = -EINVAL;
-	host->desc = NULL;
 }
-#else
-static int sh_mmcif_start_dma(struct sh_mmcif_host *host,
-			       struct mmc_data *data)
-{
-	return 0;
-}
-
-static void sh_mmcif_request_dma(struct sh_mmcif_host *host)
-{
-	host->chan_tx = NULL;
-	host->chan_rx = NULL;
-}
-
-static void sh_mmcif_release_dma(struct sh_mmcif_host *host)
-{
-}
-#endif
 
 static int sh_mmcif_start_data(struct sh_mmcif_host *host,
 		struct mmc_data *data)
 {
 	pr_debug("setup data transfer: blocksize %08x  nr_blocks %d\n",
 		 data->blksz, data->blocks);
-
-	/* Hardware cannot perform 1 and 2 byte requests in 4 bit mode */
-	if (data->blksz < 4 && host->mmc->ios.bus_width == MMC_BUS_WIDTH_4) {
-		pr_err("%s: %d byte block unsupported in 4 bit mode\n",
-		       mmc_hostname(host->mmc), data->blksz);
-		return -EINVAL;
-	}
 
 	sh_mmcif_init_sg(host, data);
 	host->data = data;
@@ -786,7 +748,8 @@ static int sh_mmcif_start_data(struct sh_mmcif_host *host,
 	sh_mmcif_writel(host->addr, MMCIF_CE_BLOCK_SET,
 			data->blksz | (data->blocks << 16));
 
-	return sh_mmcif_start_dma(host, data);
+	sh_mmcif_start_dma(host, data);
+	return 0;
 }
 
 static void sh_mmcif_request(struct mmc_host *mmc, struct mmc_request *mrq)
@@ -968,9 +931,7 @@ static int __devinit sh_mmcif_probe(struct platform_device *pdev)
 	}
 
 	/* Setup DMA */
-	host->param_tx.slave_id = pd->dma_slave_tx;
-	host->param_rx.slave_id = pd->dma_slave_rx;
-	sh_mmcif_request_dma(host);
+	sh_mmcif_request_dma(host, pd);
 
 	mmc_add_host(mmc);
 
