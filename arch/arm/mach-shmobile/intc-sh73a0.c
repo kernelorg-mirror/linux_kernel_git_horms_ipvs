@@ -337,7 +337,7 @@ static int pint_set_irq_type(unsigned int irq, unsigned int type)
 				((pin & 0x08) ? PINTCR1A : PINTCR0A));
 
 	spin_lock(&pint_lock);
-	writew((readw(reg) & ~(0x3<<shift)) | mask, reg);
+	__raw_writew((__raw_readw(reg) & ~(0x3 << shift)) | mask, reg);
 	spin_unlock(&pint_lock);
 
 	return 0;
@@ -349,7 +349,7 @@ static void pint_irq_ack(unsigned int irq)
 	u32 mask = 1 << (~pin & 0x1f);
 	u32 reg = (pin & 0x20) ? PINTRR1A : PINTRR0A;
 
-	writel(~mask, reg);
+	__raw_writel(~mask, reg);
 }
 
 static void pint_irq_mask(unsigned int irq)
@@ -359,7 +359,7 @@ static void pint_irq_mask(unsigned int irq)
 	u32 reg = (pin & 0x20) ? PINTER1A : PINTER0A;
 
 	spin_lock(&pint_lock);
-	writel(readl(reg) & ~mask, reg);
+	__raw_writel(__raw_readl(reg) & ~mask, reg);
 	spin_unlock(&pint_lock);
 }
 
@@ -370,7 +370,7 @@ static void pint_irq_unmask(unsigned int irq)
 	u32 reg = (pin & 0x20) ? PINTER1A : PINTER0A;
 
 	spin_lock(&pint_lock);
-	writel(readl(reg) | mask, reg);
+	__raw_writel(__raw_readl(reg) | mask, reg);
 	spin_unlock(&pint_lock);
 }
 
@@ -423,7 +423,7 @@ static void pint_demux(unsigned int irq, struct irq_desc *desc)
 	chip->ack(irq);
 
 	do {
-		status = readl(reg) & readl(mask_reg);
+		status = __raw_readl(reg) & __raw_readl(mask_reg);
 		if (status == 0)
 			break;
 
