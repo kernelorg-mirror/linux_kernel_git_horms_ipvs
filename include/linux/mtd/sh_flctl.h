@@ -35,9 +35,10 @@
 #define FLINTDMACR(f)		(f->reg + 0x18)
 #define FLBSYTMR(f)		(f->reg + 0x1C)
 #define FLBSYCNT(f)		(f->reg + 0x20)
-#define FLDTFIFO(f)		(f->reg + 0x24)
-#define FLECFIFO(f)		(f->reg + 0x28)
+#define FLDTFIFO(f)		(f->reg + 0x50)
+#define FLECFIFO(f)		(f->reg + 0x60)
 #define FLTRCR(f)		(f->reg + 0x2C)
+#define FLHOLDCR(f)		(f->reg + 0x38)
 #define	FL4ECCRESULT0(f)	(f->reg + 0x80)
 #define	FL4ECCRESULT1(f)	(f->reg + 0x84)
 #define	FL4ECCRESULT2(f)	(f->reg + 0x88)
@@ -45,30 +46,51 @@
 #define	FL4ECCCR(f)		(f->reg + 0x90)
 #define	FL4ECCCNT(f)		(f->reg + 0x94)
 #define	FLERRADR(f)		(f->reg + 0x98)
+#define FLGECCCR(f)		(f->reg + 0x400)
+#define FLGECCSR(f)		(f->reg + 0x404)
+#define FLGECCINTCR(f)		(f->reg + 0x408)
+#define FLGECCRSTR(f)		(f->reg + 0x40C)
+#define FLGECCERCNTR(f)		(f->reg + 0x410)
+#define FLSYSREG0(f)		(f->reg + 0x1000)
+
+/* DMAC registers */
+#define DMASAR(f)		(f->dmareg + 0x0) /* DMA source addr */
+#define DMADAR(f)		(f->dmareg + 0x4) /* DMA destination addr */
+#define DMATCR(f)		(f->dmareg + 0x8) /* DMA transfer count */
+#define DMACHCR(f)		(f->dmareg + 0xC) /* DMA channel control */
+#define DMARS(f)		(f->dmareg + 0x40) /* DMA extended resource */
 
 /* FLCMNCR control bits */
+#define PULSE3		(0x1 << 27)	/* Flash Clock Select */
+#define FLMLC		(0x1 << 26)	/* 0:512+16 1:2048+64 */
 #define ECCPOS2		(0x1 << 25)
 #define _4ECCCNTEN	(0x1 << 24)
 #define _4ECCEN		(0x1 << 23)
 #define _4ECCCORRECT	(0x1 << 22)
+#define BUSYON		(0x1 << 21)	/* 0:Hold bus 1:Release bus */
 #define SHBUSSEL	(0x1 << 20)
 #define SEL_16BIT	(0x1 << 19)
 #define SNAND_E		(0x1 << 18)	/* SNAND (0=512 1=2048)*/
-#define QTSEL_E		(0x1 << 17)
+#define PULSE2		(0x1 << 17)	/* Flash Clock Select */
 #define ENDIAN		(0x1 << 16)	/* 1 = little endian */
-#define FCKSEL_E	(0x1 << 15)
+#define PULSE1		(0x1 << 15)	/* Flash Clock Select */
 #define ECCPOS_00	(0x00 << 12)
 #define ECCPOS_01	(0x01 << 12)
 #define ECCPOS_02	(0x02 << 12)
-#define ACM_SACCES_MODE	(0x01 << 10)
-#define NANWF_E		(0x1 << 9)
-#define SE_D		(0x1 << 8)	/* Spare area disable */
+#define ACM_CACCES_MODE	(0x00 << 10)	/* Command access mode */
+#define ACM_SACCES_MODE	(0x01 << 10)	/* Sector access mode */
+#define ACM_HACCES_MODE	(0x02 << 10)	/* High-speed sector access mode */
+#define PULSE0		(0x1 << 9)	/* Flash Clock Select */
 #define	CE1_ENABLE	(0x1 << 4)	/* Chip Enable 1 */
 #define	CE0_ENABLE	(0x1 << 3)	/* Chip Enable 0 */
 #define	TYPESEL_SET	(0x1 << 0)
 
 /* FLCMDCR control bits */
 #define ADRCNT2_E	(0x1 << 31)	/* 5byte address enable */
+#define SCTCNT_19	(0x1 << 30)	/* Sector Transfer Count */
+#define SCTCNT_18	(0x1 << 29)	/* Sector Transfer Count */
+#define SCTCNT_17	(0x1 << 28)	/* Sector Transfer Count */
+#define SCTCNT_16	(0x1 << 27)	/* Sector Transfer Count */
 #define ADRMD_E		(0x1 << 26)	/* Sector address access */
 #define CDSRC_E		(0x1 << 25)	/* Data buffer selection */
 #define DOSR_E		(0x1 << 24)	/* Status read check */
@@ -84,6 +106,7 @@
 /* FLTRCR control bits */
 #define TRSTRT		(0x1 << 0)	/* translation start */
 #define TREND		(0x1 << 1)	/* translation end */
+#define TRSTATUS	(0x1 << 2)	/* transfer state */
 
 /* FL4ECCCR control bits */
 #define	_4ECCFA		(0x1 << 2)	/* 4 symbols correct fault */
@@ -91,13 +114,16 @@
 #define	_4ECCEXST	(0x1 << 0)	/* 4 symbols exist */
 
 #define INIT_FL4ECCRESULT_VAL	0x03FF03FF
-#define LOOP_TIMEOUT_MAX	0x00010000
+#define LOOP_TIMEOUT_MAX	0x00030000
 
+#define LBA_NAND_SDA_SIZE (32 << 20)
 struct sh_flctl {
 	struct mtd_info		mtd;
 	struct nand_chip	chip;
 	struct platform_device	*pdev;
 	void __iomem		*reg;
+	void __iomem		*dmareg;
+	void __iomem		*dmabuf;
 
 	uint8_t	done_buff[2048 + 64];	/* max size 2048 + 64 */
 	int	read_bytes;

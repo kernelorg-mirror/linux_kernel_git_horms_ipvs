@@ -88,7 +88,7 @@ extern int nand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
 #define NAND_CMD_RNDIN		0x85
 #define NAND_CMD_READID		0x90
 #define NAND_CMD_ERASE2		0xd0
-#define NAND_CMD_RESET		0xff
+#define NAND_CMD_RESET		0xfd
 
 #define NAND_CMD_LOCK		0x2a
 #define NAND_CMD_UNLOCK1	0x23

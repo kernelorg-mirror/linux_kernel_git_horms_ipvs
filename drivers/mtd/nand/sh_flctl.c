@@ -97,6 +97,24 @@ static void wait_completion(struct sh_flctl *flctl)
 	writeb(0x0, FLTRCR(flctl));
 }
 
+static void wait_dma_completion(struct sh_flctl *flctl)
+{
+	uint32_t timeout = LOOP_TIMEOUT_MAX * 2;
+	char *reg = ioremap(0xFE00888C, 0x4); /* DMACHCR */
+
+	while (timeout--) {
+		if (readl(reg) & TREND) {
+			writel(0x0, reg);
+			iounmap(reg);
+			return;
+		}
+		udelay(1);
+	}
+
+	iounmap(reg);
+	timeout_error(flctl, __func__);
+}
+
 static void set_addr(struct mtd_info *mtd, int column, int page_addr)
 {
 	struct sh_flctl *flctl = mtd_to_flctl(mtd);
@@ -109,13 +127,28 @@ static void set_addr(struct mtd_info *mtd, int column, int page_addr)
 		if (flctl->chip.options & NAND_BUSWIDTH_16)
 			column >>= 1;
 		if (flctl->page_size) {
-			addr = column & 0x0FFF;
+			addr += 4; /* large page sector count */
+			page_addr *= 4; /* large page size = 512 * 4 */
 			addr |= (page_addr & 0xff) << 16;
 			addr |= ((page_addr >> 8) & 0xff) << 24;
 			/* big than 128MB */
 			if (flctl->rw_ADRCNT == ADRCNT2_E) {
-				uint32_t 	addr2;
+				uint32_t addr2;
 				addr2 = (page_addr >> 16) & 0xff;
+				if (flctl->pdev->id)
+					addr2 += 0x20; /* MDA offset */
+				else {
+					addr += 0x10000000; /* SDA offset */
+					addr2 += 0; /* SDA offset addr */
+				}
+				/* DMA setting */
+				__raw_writel(0x00530000, FLINTDMACR(flctl));
+				__raw_readl(DMACHCR(flctl)); /* dummy read */
+				__raw_writel(0xEE000050, DMASAR(flctl));
+				__raw_writel(0xE5680000, DMADAR(flctl));
+				__raw_writel(0x00000084, DMATCR(flctl));
+				__raw_writel(0x00004819, DMACHCR(flctl));
+				__raw_writew(0x8083, DMARS(flctl));
 				writel(addr2, FLADR2(flctl));
 			}
 		} else {
@@ -232,7 +265,8 @@ static void read_datareg(struct sh_flctl *flctl, int offset)
 
 	wait_completion(flctl);
 
-	data = readl(FLDATAR(flctl));
+	data = readl(FLDTFIFO(flctl));
+	data = (((data >> 16) & 0xff) << 8) | (data & 0xff);
 	*buf = le32_to_cpu(data);
 }
 
@@ -283,7 +317,7 @@ static void write_fiforeg(struct sh_flctl *flctl, int rlen, int offset)
 static void set_cmd_regs(struct mtd_info *mtd, uint32_t cmd, uint32_t flcmcdr_val)
 {
 	struct sh_flctl *flctl = mtd_to_flctl(mtd);
-	uint32_t flcmncr_val = readl(FLCMNCR(flctl)) & ~SEL_16BIT;
+	uint32_t flcmncr_val = readl(FLCMNCR(flctl));
 	uint32_t flcmdcr_val, addr_len_bytes = 0;
 
 	/* Set SNAND bit if page size is 2048byte */
@@ -303,6 +337,7 @@ static void set_cmd_regs(struct mtd_info *mtd, uint32_t cmd, uint32_t flcmcdr_va
 		break;
 	case NAND_CMD_READ0:
 	case NAND_CMD_READOOB:
+		flcmdcr_val |= ADRCNT2_E | CDSRC_E | DOCMD2_E;
 		addr_len_bytes = flctl->rw_ADRCNT;
 		flcmdcr_val |= CDSRC_E;
 		if (flctl->chip.options & NAND_BUSWIDTH_16)
@@ -313,19 +348,21 @@ static void set_cmd_regs(struct mtd_info *mtd, uint32_t cmd, uint32_t flcmcdr_va
 		flcmdcr_val &= ~DOADR_E;	/* ONLY execute 1st cmd */
 		break;
 	case NAND_CMD_PAGEPROG:
+		flcmdcr_val |= ADRCNT2_E | CDSRC_E | DOSR_E | SELRW | DOCMD2_E;
 		addr_len_bytes = flctl->rw_ADRCNT;
-		flcmdcr_val |= DOCMD2_E | CDSRC_E | SELRW;
 		if (flctl->chip.options & NAND_BUSWIDTH_16)
 			flcmncr_val |= SEL_16BIT;
 		break;
 	case NAND_CMD_READID:
-		flcmncr_val &= ~SNAND_E;
+		flcmdcr_val |= ADRMD_E | CDSRC_E | DOSR_E;
 		addr_len_bytes = ADRCNT_1;
 		break;
 	case NAND_CMD_STATUS:
-	case NAND_CMD_RESET:
-		flcmncr_val &= ~SNAND_E;
+		flcmdcr_val |= ADRMD_E | CDSRC_E | DOCMD1_E;
 		flcmdcr_val &= ~(DOADR_E | DOSR_E);
+		break;
+	case NAND_CMD_RESET:
+		flcmdcr_val |= ADRMD_E | DOSR_E | SELRW | DOADR_E | DOCMD1_E;
 		break;
 	default:
 		break;
@@ -527,8 +564,12 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 		}
 		empty_fifo(flctl);
 		if (flctl->page_size)
-			set_cmd_regs(mtd, command, (NAND_CMD_READSTART << 8)
-				| command);
+			if (flctl->pdev->id)  /* MDA */
+				set_cmd_regs(mtd, command,
+				    (NAND_CMD_READSTART << 8) | command | 0xA);
+			else  /* SDA */
+				set_cmd_regs(mtd, command,
+				    (NAND_CMD_READSTART << 8) | command);
 		else
 			set_cmd_regs(mtd, command, command);
 
@@ -549,8 +590,13 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 
 		empty_fifo(flctl);
 		if (flctl->page_size) {
-			set_cmd_regs(mtd, command, (NAND_CMD_READSTART << 8)
-				| NAND_CMD_READ0);
+			if (flctl->pdev->id) /* MDA */
+				set_cmd_regs(mtd, command,
+				    (NAND_CMD_READSTART << 8) | NAND_CMD_READ0
+				    | 0xA);
+			else  /* SDA */
+				set_cmd_regs(mtd, command,
+				    (NAND_CMD_READSTART << 8) | NAND_CMD_READ0);
 			set_addr(mtd, mtd->writesize, page_addr);
 		} else {
 			set_cmd_regs(mtd, command, command);
@@ -564,10 +610,12 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 		set_cmd_regs(mtd, command, command);
 		set_addr(mtd, 0, 0);
 
-		flctl->read_bytes = 4;
+		flctl->read_bytes = 8;
 		writel(flctl->read_bytes, FLDTCNTR(flctl)); /* set read size */
 		start_translation(flctl);
 		read_datareg(flctl, 0);	/* read and end */
+		start_translation(flctl);
+		read_datareg(flctl, 2);	/* read and end */
 		break;
 
 	case NAND_CMD_ERASE1:
@@ -620,12 +668,30 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 				printk(KERN_ERR "Invalid address !?\n");
 			break;
 		}
-		set_cmd_regs(mtd, command, (command << 8) | NAND_CMD_SEQIN);
+		if (flctl->pdev->id)
+			set_cmd_regs(mtd, command, (command << 8)
+				     | NAND_CMD_SEQIN | 0xA); /* MDA */
+		else
+			set_cmd_regs(mtd, command, (command << 8)
+				     | NAND_CMD_SEQIN); /* SDA */
 		set_addr(mtd, flctl->seqin_column, flctl->seqin_page_addr);
+		flctl->index -= mtd->oobsize; /* No OOB area */
+
 		writel(flctl->index, FLDTCNTR(flctl));	/* set write size */
+
+		/* DMA WRITE */
+		__raw_writel(0x00530000, FLINTDMACR(flctl));
+		__raw_writel(0xE5680000, DMASAR(flctl));
+		__raw_writel(0xEE000050, DMADAR(flctl));
+		__raw_writel((flctl->index >> 4), DMATCR(flctl));
+		__raw_readl(DMACHCR(flctl)); /* dummy read */
+		__raw_writel(0x00001819, DMACHCR(flctl));
+		__raw_writew(0x8083, DMARS(flctl));
+
 		start_translation(flctl);
-		write_fiforeg(flctl, flctl->index, 0);
+		wait_dma_completion(flctl);
 		wait_completion(flctl);
+
 		break;
 
 	case NAND_CMD_STATUS:
@@ -654,8 +720,10 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 
 read_normal_exit:
 	writel(flctl->read_bytes, FLDTCNTR(flctl));	/* set read size */
+
+	/* READ MDA */
 	start_translation(flctl);
-	read_fiforeg(flctl, flctl->read_bytes, 0);
+	wait_dma_completion(flctl);
 	wait_completion(flctl);
 	return;
 }
@@ -667,11 +735,11 @@ static void flctl_select_chip(struct mtd_info *mtd, int chipnr)
 
 	switch (chipnr) {
 	case -1:
-		flcmncr_val &= ~CE0_ENABLE;
+		flcmncr_val &= ~CE1_ENABLE;
 		writel(flcmncr_val, FLCMNCR(flctl));
 		break;
 	case 0:
-		flcmncr_val |= CE0_ENABLE;
+		flcmncr_val |= CE1_ENABLE;
 		writel(flcmncr_val, FLCMNCR(flctl));
 		break;
 	default:
@@ -682,10 +750,8 @@ static void flctl_select_chip(struct mtd_info *mtd, int chipnr)
 static void flctl_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
 	struct sh_flctl *flctl = mtd_to_flctl(mtd);
-	int i, index = flctl->index;
 
-	for (i = 0; i < len; i++)
-		flctl->done_buff[index + i] = buf[i];
+	memcpy(flctl->dmabuf + flctl->index, (uint8_t *)buf, len);
 	flctl->index += len;
 }
 
@@ -714,10 +780,10 @@ static uint16_t flctl_read_word(struct mtd_info *mtd)
 
 static void flctl_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
-	int i;
+	struct sh_flctl *flctl = mtd_to_flctl(mtd);
 
-	for (i = 0; i < len; i++)
-		buf[i] = flctl_read_byte(mtd);
+	memcpy(buf, flctl->dmabuf + flctl->index, len);
+	flctl->index += len;
 }
 
 static int flctl_verify_buf(struct mtd_info *mtd, const u_char *buf, int len)
@@ -769,6 +835,9 @@ static int flctl_chip_init_tail(struct mtd_info *mtd)
 			flctl->erase_ADRCNT = ADRCNT_1;
 		}
 	}
+	flctl->page_size = 1;
+	flctl->rw_ADRCNT = ADRCNT2_E;
+	flctl->erase_ADRCNT = ADRCNT2_E;
 
 	if (flctl->hwecc) {
 		if (mtd->writesize == 512) {
@@ -789,7 +858,7 @@ static int flctl_chip_init_tail(struct mtd_info *mtd)
 		writel(readl(FLCMNCR(flctl)) | _4ECCEN | ECCPOS2 | ECCPOS_02,
 				FLCMNCR(flctl));
 	} else {
-		chip->ecc.mode = NAND_ECC_SOFT;
+		chip->ecc.mode = NAND_ECC_NONE;
 	}
 
 	return 0;
@@ -828,12 +897,28 @@ static int __devinit flctl_probe(struct platform_device *pdev)
 		goto err;
 	}
 
+	flctl->dmareg = ioremap(0xFE008880, 0x50);
+	if (flctl->reg == NULL) {
+		dev_err(&pdev->dev, "failed to remap I/O memory: DMA reg\n");
+		goto err;
+	}
+
+	flctl->dmabuf = ioremap(0xE5680000, 0x800);
+	if (flctl->reg == NULL) {
+		dev_err(&pdev->dev, "failed to remap I/O memory: DMA buf\n");
+		goto err;
+	}
+
 	platform_set_drvdata(pdev, flctl);
 	flctl_mtd = &flctl->mtd;
 	nand = &flctl->chip;
 	flctl_mtd->priv = nand;
 	flctl->pdev = pdev;
 	flctl->hwecc = pdata->has_hwecc;
+	if (flctl->pdev->id)
+		flctl_mtd->name = "MDA";
+	else
+		flctl_mtd->name = "SDA";
 
 	flctl_register_init(flctl, pdata->flcmncr_val);
 
@@ -867,6 +952,34 @@ static int __devinit flctl_probe(struct platform_device *pdev)
 	if (ret)
 		goto err;
 
+	/* SetProtocol init */
+	__raw_writel(0x003D0211, FLCMNCR(flctl)); /* Common Control */
+	__raw_writel(0x81330000, FLCMDCR(flctl)); /* Command Control */
+	__raw_writel(0x00005700, FLCMCDR(flctl)); /* Command Code */
+	__raw_writel(0x00000000, FLDTCNTR(flctl));
+	__raw_writel(0x00000000, FLBSYTMR(flctl));
+	__raw_writel(0x00000000, FLHOLDCR(flctl));
+	__raw_writel(0x00000000, FLADR(flctl));
+	__raw_writel(0x00000000, FLADR2(flctl));
+
+	/* SetProtocol 2 */
+	/* Type a, 513 to 514 byte can be read & write ; Factory preset */
+	__raw_writel(0x000000A3, FLADR(flctl));
+	start_translation(flctl);
+	wait_completion(flctl);
+
+	/* SetProtocol 1 */
+	/* Type c : All 1 Read, Type 3 : Sector Multiple is 4 (2048 + 64) */
+	__raw_writel(0x0000A3A2, FLADR(flctl));
+	start_translation(flctl);
+	wait_completion(flctl);
+
+	/* SetProtocol 3 */
+	/* All of spare byte(513 to 528Bytes) : Factory preset */
+	__raw_writel(0x00001FA7, FLADR(flctl));
+	start_translation(flctl);
+	wait_completion(flctl);
+
 	add_mtd_partitions(flctl_mtd, pdata->parts, pdata->nr_parts);
 
 	return 0;
@@ -880,6 +993,9 @@ static int __devexit flctl_remove(struct platform_device *pdev)
 {
 	struct sh_flctl *flctl = platform_get_drvdata(pdev);
 
+	iounmap(flctl->reg);
+	iounmap(flctl->dmareg);
+	iounmap(flctl->dmabuf);
 	nand_release(&flctl->mtd);
 	kfree(flctl);
 

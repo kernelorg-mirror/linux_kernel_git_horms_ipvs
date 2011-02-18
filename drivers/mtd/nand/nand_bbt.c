@@ -104,6 +104,7 @@ static int check_pattern(uint8_t *buf, int len, int paglen, struct nand_bbt_desc
 	return 0;
 }
 
+#ifndef CONFIG_MACH_AG5EVM
 /**
  * check_short_pattern - [GENERIC] check if a pattern is in the buffer
  * @buf:	the buffer to search
@@ -126,6 +127,7 @@ static int check_short_pattern(uint8_t *buf, struct nand_bbt_descr *td)
 	}
 	return 0;
 }
+#endif
 
 /**
  * read_bbt - [GENERIC] Read the bad block table starting from page
@@ -320,6 +322,7 @@ static int read_abs_bbts(struct mtd_info *mtd, uint8_t *buf,
 	return 1;
 }
 
+#ifndef CONFIG_MACH_AG5EVM
 /*
  * Scan a given block full
  */
@@ -372,6 +375,7 @@ static int scan_block_fast(struct mtd_info *mtd, struct nand_bbt_descr *bd,
 	}
 	return 0;
 }
+#endif
 
 /**
  * create_bbt - [GENERIC] Create a bad block table by scanning the device
@@ -387,6 +391,7 @@ static int scan_block_fast(struct mtd_info *mtd, struct nand_bbt_descr *bd,
 static int create_bbt(struct mtd_info *mtd, uint8_t *buf,
 	struct nand_bbt_descr *bd, int chip)
 {
+#ifndef CONFIG_MACH_AG5EVM
 	struct nand_chip *this = mtd->priv;
 	int i, numblocks, len, scanlen;
 	int startblock;
@@ -457,6 +462,7 @@ static int create_bbt(struct mtd_info *mtd, uint8_t *buf,
 		i += 2;
 		from += (1 << this->bbt_erase_shift);
 	}
+#endif
 	return 0;
 }
 

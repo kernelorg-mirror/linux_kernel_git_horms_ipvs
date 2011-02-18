@@ -3188,8 +3188,10 @@ int nand_scan_tail(struct mtd_info *mtd)
 		break;
 
 	case NAND_ECC_NONE:
+#ifndef CONFIG_MACH_AG5EVM
 		printk(KERN_WARNING "NAND_ECC_NONE selected by board driver. "
 		       "This is not recommended !!\n");
+#endif
 		chip->ecc.read_page = nand_read_page_raw;
 		chip->ecc.write_page = nand_write_page_raw;
 		chip->ecc.read_oob = nand_read_oob_std;
