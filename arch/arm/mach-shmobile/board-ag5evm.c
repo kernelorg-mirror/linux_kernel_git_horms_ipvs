@@ -67,7 +67,7 @@ static struct mtd_partition nand_partition_info0[] = {
 	{
 		.name	= "SDA1",
 		.offset	= 1 << 20,
-		.size	= LBA_NAND_SDA_SIZE - (1 << 20),
+		.size	= LBA_NAND_SDA_SIZE - (1 << 20) - (2 << 20),
 	},
 };
 
