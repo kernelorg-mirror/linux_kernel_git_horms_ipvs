@@ -146,7 +146,7 @@ static void set_addr(struct mtd_info *mtd, int column, int page_addr)
 				__raw_readl(DMACHCR(flctl)); /* dummy read */
 				__raw_writel(0xEE000050, DMASAR(flctl));
 				__raw_writel(0xE5680000, DMADAR(flctl));
-				__raw_writel(0x00000084, DMATCR(flctl));
+				__raw_writel(0x00000080, DMATCR(flctl));
 				__raw_writel(0x00004819, DMACHCR(flctl));
 				__raw_writew(0x8083, DMARS(flctl));
 				writel(addr2, FLADR2(flctl));
@@ -575,7 +575,7 @@ static void flctl_cmdfunc(struct mtd_info *mtd, unsigned int command,
 
 		set_addr(mtd, 0, page_addr);
 
-		flctl->read_bytes = mtd->writesize + mtd->oobsize;
+		flctl->read_bytes = mtd->writesize;
 		if (flctl->chip.options & NAND_BUSWIDTH_16)
 			column >>= 1;
 		flctl->index += column;
