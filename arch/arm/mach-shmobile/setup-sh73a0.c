@@ -394,7 +394,9 @@ static const struct sh_dmae_channel sh73a0_dmae_channels[] = {
 	DMAE_CHANNEL(0x700, 0x40, 0),
 	DMAE_CHANNEL(0x780, 0x40, 0),
 	DMAE_CHANNEL(0x800, 0x40, 0),
+#ifndef CONFIG_MTD_NAND_SH_FLCTL
 	DMAE_CHANNEL(0x880, 0x40, 0),
+#endif
 	DMAE_CHANNEL(0x900, 0x40, 0),
 	DMAE_CHANNEL(0x980, 0x40, 0),
 };
