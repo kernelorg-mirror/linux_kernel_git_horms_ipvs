@@ -28,6 +28,21 @@
 #include <sound/sh_fsi.h>
 #include <asm/atomic.h>
 
+#define USE_DMA
+#ifdef USE_DMA
+#define MPDMAC_SAR0	(0xec618020)	/* 32bit */
+#define MPDMAC_DAR0	(0xec618024)	/* 32bit */
+#define MPDMAC_TCR0	(0xec618028)	/* 32bit */
+#define MPDMAC_CHCR0	(0xec61802c)	/* 32bit */
+#define MPDMAC_OR	(0xec618060)	/* 16bit */
+#define MPDMAC_SARB0	(0xec618120)	/* 32bit */
+#define MPDMAC_DARB0	(0xec618124)	/* 32bit */
+#define MPDMAC_TCRB0	(0xec618128)	/* 32bit */
+#define MPDMAC_CHCRB0	(0xec61812c)	/* 32bit */
+#define MPDMAC_CHCLR0	(0xec618220)	/* 32bit */
+#define MPDMAC_RS	(0xec619000)	/* 16bit */
+#endif
+
 #define DO_FMT		0x0000
 #define DOFF_CTL	0x0004
 #define DOFF_ST		0x0008
@@ -40,7 +55,12 @@
 #define DODT		0x0024
 #define MUTE_ST		0x0028
 #define OUT_DMAC	0x002C
+#ifdef USE_DMA
+#define IN_DMAC		0x0038
+#define REG_END		IN_DMAC
+#else
 #define REG_END		OUT_DMAC
+#endif
 
 #define CPU_INT_ST	0x01F4
 #define CPU_IEMSK	0x01F8
@@ -53,9 +73,16 @@
 #define SOFT_RST	0x0214
 #define FIFO_SZ		0x0218
 #define CLK_SEL		0x0220
+#ifdef USE_DMA
+#define SWAP_SEL	0x0228
+#endif
 #define HPB_SRST	0x022C
 #define MREG_START	CPU_INT_ST
+#ifdef USE_DMA
+#define MREG_END	SWAP_SEL
+#else
 #define MREG_END	CLK_SEL
+#endif
 
 /* DO_FMT */
 /* DI_FMT */
@@ -121,6 +148,12 @@ struct fsi_priv {
 	int period_len;
 	int buffer_len;
 	int periods;
+
+#ifdef USE_DMA
+	void __iomem *phys_base;
+	unsigned int out_dma;
+	unsigned int in_dma;
+#endif
 };
 
 struct fsi_regs {
@@ -448,6 +481,14 @@ static void fsi_fifo_init(struct fsi_priv *fsi,
 
 	/* clear FIFO */
 	fsi_reg_mask_set(fsi, ctrl, FIFO_CLR, FIFO_CLR);
+
+#ifdef USE_DMA
+	/* Setting DMA */
+	ctrl = is_play ? OUT_DMAC : IN_DMAC;
+	fsi_reg_write(fsi, ctrl, 0x21);
+
+	fsi_master_write(master, SWAP_SEL, 2);
+#endif
 }
 
 static void fsi_soft_all_reset(struct fsi_master *master)
@@ -462,9 +503,115 @@ static void fsi_soft_all_reset(struct fsi_master *master)
 	mdelay(10);
 }
 
+#ifdef USE_DMA
+static int fsi_dma_init(struct fsi_priv *fsi, int is_play)
+{
+	writew(0x0001, MPDMAC_OR);
+	writew(0x00D5, MPDMAC_RS);
+	return 0;
+}
+
+static int fsi_dma_stop(struct fsi_priv *fsi, int is_play)
+{
+	fsi_reg_write(fsi, OUT_DMAC, 0);
+	writel(0x0, MPDMAC_CHCR0);
+	writel(0x0, MPDMAC_CHCLR0);
+	return 0;
+}
+
+static int fsi_dma_get_pos(struct fsi_priv *fsi, int is_play)
+{
+	if (is_play)
+		return readl(MPDMAC_SAR0);
+	else
+		return readl(MPDMAC_DAR0);
+}
+
+static int fsi_dma_start(struct fsi_priv *fsi,
+	dma_addr_t src, int size, int channel)
+{
+	if (channel == 0) {
+		writel(src, MPDMAC_SAR0);
+		writel(fsi->phys_base + DODT, MPDMAC_DAR0);
+		writel(size, MPDMAC_TCR0);
+		writel(0x02001815, MPDMAC_CHCR0);
+	} else {
+		writel(src, MPDMAC_SARB0);
+		writel(fsi->phys_base + DODT, MPDMAC_DARB0);
+		writel(size, MPDMAC_TCRB0);
+	}
+	return 0;
+}
+
+static int fsi_dma_process(struct fsi_priv *fsi, int startup)
+{
+	struct snd_pcm_runtime *runtime;
+	struct snd_pcm_substream *substream = NULL;
+	unsigned int period_size;
+	unsigned int dma_offset, dma_size;
+	dma_addr_t dma_pos;
+
+	if (!fsi			||
+	    !fsi->substream		||
+	    !fsi->substream->runtime)
+		return -EINVAL;
+
+	substream = fsi->substream;
+	runtime = substream->runtime;
+
+	period_size = snd_pcm_lib_period_bytes(substream);
+	dma_offset = fsi->periods * period_size;
+	dma_pos = runtime->dma_addr + dma_offset;
+	dma_size = period_size / 4;
+
+	if (startup) {
+		fsi_dma_start(fsi, dma_pos, dma_size, 0);
+		fsi_fifo_init(fsi, 1, NULL);
+
+		fsi->periods++;
+		if (unlikely(fsi->periods >= runtime->periods))
+			fsi->periods = 0;
+		dma_offset = fsi->periods * period_size;
+		dma_pos = runtime->dma_addr + dma_offset;
+		dma_size = period_size / 4;
+		fsi_dma_start(fsi, dma_pos, dma_size, 1);
+
+	} else
+		fsi_dma_start(fsi, dma_pos, dma_size, 1);
+
+	fsi->periods++;
+	if (unlikely(fsi->periods >= runtime->periods))
+		fsi->periods = 0;
+
+	return 0;
+}
+#endif
+
 /* playback interrupt */
 static int fsi_data_push(struct fsi_priv *fsi, int startup)
 {
+#ifdef USE_DMA
+	struct snd_pcm_substream *substream = NULL;
+	u32 status;
+
+	if (!fsi			||
+	    !fsi->substream		||
+	    !fsi->substream->runtime)
+		return -EINVAL;
+
+	substream = fsi->substream;
+
+	status = fsi_reg_read(fsi, DOFF_ST);
+	if (!startup) {
+		struct snd_soc_dai *dai = fsi_get_dai(substream);
+
+		if (status & ERR_OVER)
+			dev_err(dai->dev, "over run\n");
+		if (status & ERR_UNDER)
+			dev_err(dai->dev, "under run\n");
+	}
+	fsi_reg_write(fsi, DOFF_ST, 0);
+#else
 	struct snd_pcm_runtime *runtime;
 	struct snd_pcm_substream *substream = NULL;
 	u32 status;
@@ -543,6 +690,7 @@ static int fsi_data_push(struct fsi_priv *fsi, int startup)
 
 	if (over_period)
 		snd_pcm_period_elapsed(substream);
+#endif
 
 	return 0;
 }
@@ -629,6 +777,29 @@ static int fsi_data_pop(struct fsi_priv *fsi, int startup)
 
 	return 0;
 }
+
+#ifdef USE_DMA
+static irqreturn_t fsi_dma_interrupt(int irq, void *data)
+{
+	struct fsi_priv *fsi = data;
+	struct snd_pcm_substream *substream;
+	u32 val;
+
+	substream = fsi->substream;
+
+	val = readl(MPDMAC_CHCR0);
+	writel(val & ~0x80080002, MPDMAC_CHCR0);
+
+	if (substream) {
+		if (snd_pcm_running(substream)) {
+			fsi_dma_process(fsi, 0);
+			snd_pcm_period_elapsed(substream);
+		}
+	}
+
+	return IRQ_HANDLED;
+}
+#endif
 
 static irqreturn_t fsi_interrupt(int irq, void *data)
 {
@@ -761,6 +932,11 @@ static int fsi_dai_startup(struct snd_pcm_substream *substream,
 	/* fifo init */
 	fsi_fifo_init(fsi, is_play, dai);
 
+#ifdef USE_DMA
+	/* dma init */
+	fsi_dma_init(fsi, 1);
+#endif
+
 	return ret;
 }
 
@@ -789,10 +965,19 @@ static int fsi_dai_trigger(struct snd_pcm_substream *substream, int cmd,
 		fsi_stream_push(fsi, substream,
 				frames_to_bytes(runtime, runtime->buffer_size),
 				frames_to_bytes(runtime, runtime->period_size));
+#ifdef USE_DMA
+		ret = fsi_dma_process(fsi, 1);
+#else
 		ret = is_play ? fsi_data_push(fsi, 1) : fsi_data_pop(fsi, 1);
+#endif
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
+#ifdef USE_DMA
+		fsi_irq_disable(fsi, 0);
+		fsi_dma_stop(fsi, is_play);
+#else
 		fsi_irq_disable(fsi, is_play);
+#endif
 		fsi_stream_pop(fsi);
 		break;
 	}
@@ -863,11 +1048,22 @@ static snd_pcm_uframes_t fsi_pointer(struct snd_pcm_substream *substream)
 	struct fsi_priv *fsi = fsi_get_priv(substream);
 	long location;
 
+#ifdef USE_DMA
+	unsigned int addr;
+	int is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
+
+	addr = fsi_dma_get_pos(fsi, is_play);
+	location = bytes_to_frames(runtime, addr - runtime->dma_addr);
+	if (location >= runtime->buffer_size)
+		location = 0;
+	return location;
+#else
 	location = (fsi->byte_offset - 1);
 	if (location < 0)
 		location = 0;
 
 	return bytes_to_frames(runtime, location);
+#endif
 }
 
 static struct snd_pcm_ops fsi_pcm_ops = {
@@ -897,6 +1093,15 @@ static int fsi_pcm_new(struct snd_card *card,
 		       struct snd_soc_dai *dai,
 		       struct snd_pcm *pcm)
 {
+#ifdef USE_DMA
+	if (!card->dev->coherent_dma_mask)
+		card->dev->coherent_dma_mask = 0xffffffff;
+	return snd_pcm_lib_preallocate_pages_for_all(
+		pcm,
+		SNDRV_DMA_TYPE_DEV,
+		card->dev,
+		PREALLOC_BUFFER, PREALLOC_BUFFER_MAX);
+#else
 	/*
 	 * dont use SNDRV_DMA_TYPE_DEV, since it will oops the SH kernel
 	 * in MMAP mode (i.e. aplay -M)
@@ -906,6 +1111,7 @@ static int fsi_pcm_new(struct snd_card *card,
 		SNDRV_DMA_TYPE_CONTINUOUS,
 		snd_dma_continuous_data(GFP_KERNEL),
 		PREALLOC_BUFFER, PREALLOC_BUFFER_MAX);
+#endif
 }
 
 /************************************************************************
@@ -1016,6 +1222,10 @@ static int fsi_probe(struct platform_device *pdev)
 	master->fsib.base	= master->base + 0x40;
 	master->fsib.master	= master;
 	master->regs		= (struct fsi_regs *)id_entry->driver_data;
+#ifdef USE_DMA
+	master->fsia.phys_base	= (void *)res->start;
+	master->fsib.phys_base	= (void *)res->start + 0x40;
+#endif
 	spin_lock_init(&master->lock);
 
 	pm_runtime_enable(&pdev->dev);
@@ -1034,6 +1244,15 @@ static int fsi_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "irq request err\n");
 		goto exit_iounmap;
 	}
+
+#ifdef USE_DMA
+	ret = request_irq(gic_spi(175), &fsi_dma_interrupt, IRQF_DISABLED,
+			  id_entry->name, &master->fsia);
+	if (ret) {
+		dev_err(&pdev->dev, "irq request err\n");
+		goto exit_iounmap;
+	}
+#endif
 
 	ret = snd_soc_register_platform(&fsi_soc_platform);
 	if (ret < 0) {
