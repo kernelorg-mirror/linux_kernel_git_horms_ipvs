@@ -30,6 +30,7 @@
 #include <linux/sh_dma.h>
 #include <linux/sh_intc.h>
 #include <linux/sh_timer.h>
+#include <linux/i2c-sh_mobile.h>
 #include <mach/hardware.h>
 #include <mach/sh73a0.h>
 #include <asm/mach-types.h>
@@ -527,6 +528,10 @@ static struct platform_device dma_device = {
 	},
 };
 
+static struct sh_i2c_plat_data i2c0_platform_data = {
+	.clkrate	= 400000,
+};
+
 static struct resource i2c0_resources[] = {
 	[0] = {
 		.name	= "IIC0",
@@ -539,6 +544,10 @@ static struct resource i2c0_resources[] = {
 		.end	= gic_spi(170),
 		.flags	= IORESOURCE_IRQ,
 	},
+};
+
+static struct sh_i2c_plat_data i2c1_platform_data = {
+	.clkrate	= 400000,
 };
 
 static struct resource i2c1_resources[] = {
@@ -555,6 +564,10 @@ static struct resource i2c1_resources[] = {
 	},
 };
 
+static struct sh_i2c_plat_data i2c2_platform_data = {
+	.clkrate	= 400000,
+};
+
 static struct resource i2c2_resources[] = {
 	[0] = {
 		.name	= "IIC2",
@@ -567,6 +580,10 @@ static struct resource i2c2_resources[] = {
 		.end	= gic_spi(174),
 		.flags	= IORESOURCE_IRQ,
 	},
+};
+
+static struct sh_i2c_plat_data i2c3_platform_data = {
+	.clkrate	= 400000,
 };
 
 static struct resource i2c3_resources[] = {
@@ -588,6 +605,9 @@ static struct platform_device i2c0_device = {
 	.id		= 0,
 	.resource	= i2c0_resources,
 	.num_resources	= ARRAY_SIZE(i2c0_resources),
+	.dev		= {
+		.platform_data	= &i2c0_platform_data,
+	},
 };
 
 static struct platform_device i2c1_device = {
@@ -595,6 +615,9 @@ static struct platform_device i2c1_device = {
 	.id		= 1,
 	.resource	= i2c1_resources,
 	.num_resources	= ARRAY_SIZE(i2c1_resources),
+	.dev		= {
+		.platform_data	= &i2c1_platform_data,
+	},
 };
 
 static struct platform_device i2c2_device = {
@@ -602,6 +625,9 @@ static struct platform_device i2c2_device = {
 	.id		= 2,
 	.resource	= i2c2_resources,
 	.num_resources	= ARRAY_SIZE(i2c2_resources),
+	.dev		= {
+		.platform_data	= &i2c2_platform_data,
+	},
 };
 
 static struct platform_device i2c3_device = {
@@ -609,6 +635,9 @@ static struct platform_device i2c3_device = {
 	.id		= 3,
 	.resource	= i2c3_resources,
 	.num_resources	= ARRAY_SIZE(i2c3_resources),
+	.dev		= {
+		.platform_data	= &i2c3_platform_data,
+	},
 };
 
 static struct platform_device *sh73a0_early_devices[] __initdata = {
