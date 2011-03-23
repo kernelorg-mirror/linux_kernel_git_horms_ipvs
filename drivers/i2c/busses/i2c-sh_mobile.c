@@ -32,6 +32,7 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/slab.h>
+#include <linux/i2c-sh_mobile.h>
 
 /* Transmit operation:                                                      */
 /*                                                                          */
@@ -121,6 +122,7 @@ struct sh_mobile_i2c_data {
 	struct clk *clk;
 	u_int8_t iccl;
 	u_int8_t icch;
+	u_int32_t speed;
 
 	spinlock_t lock;
 	wait_queue_head_t wait;
@@ -181,9 +183,9 @@ static void activate_ch(struct sh_mobile_i2c_data *pd)
 	 */
 	num = i2c_clk * 5;
 #ifdef CONFIG_ARCH_SH73A0
-	denom = NORMAL_SPEED * 9 * 2;
+	denom = pd->speed * 9 * 2;
 #else
-	denom = NORMAL_SPEED * 9;
+	denom = pd->speed* 9;
 #endif
 	tmp = num * 10 / denom;
 	if (tmp % 10 >= 5)
@@ -540,6 +542,7 @@ static int sh_mobile_i2c_probe(struct platform_device *dev)
 	char clk_name[8];
 	int size;
 	int ret;
+	struct sh_i2c_plat_data *pdata = dev->dev.platform_data;
 
 	pd = kzalloc(sizeof(struct sh_mobile_i2c_data), GFP_KERNEL);
 	if (pd == NULL) {
@@ -554,6 +557,11 @@ static int sh_mobile_i2c_probe(struct platform_device *dev)
 		ret = PTR_ERR(pd->clk);
 		goto err;
 	}
+
+	if (pdata)
+		pd->speed = pdata->clkrate;
+	else
+		pd->speed = NORMAL_SPEED;
 
 	ret = sh_mobile_i2c_hook_irqs(dev, 1);
 	if (ret) {
