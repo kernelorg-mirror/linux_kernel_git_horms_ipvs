@@ -41,6 +41,7 @@
 #include <linux/mmc/sh_mmcif.h>
 #include <linux/mfd/sh_mobile_sdhi.h>
 #include <linux/mfd/tmio.h>
+#include <linux/mtd/sh_flctl.h>
 #include <linux/usb/android_composite.h>
 
 #include <mach/hardware.h>
@@ -56,6 +57,88 @@
 
 #include <sound/sh_fsi.h>
 #include <video/sh_mobile_lcdc.h>
+
+static struct mtd_partition nand_partition_info0[] = {
+	{
+		.name	= "SDA0",
+		.offset	= 0,
+		.size	= 1 << 20,
+	},
+	{
+		.name	= "SDA1",
+		.offset	= 1 << 20,
+		.size	= LBA_NAND_SDA_SIZE - (1 << 20),
+	},
+};
+
+static struct mtd_partition nand_partition_info1[] = {
+	{
+		.name	= "MDA0",
+		.offset	= 0,
+		.size	= 1 << 20,
+	},
+	{
+		.name	= "MDA1",
+		.offset	= 1 << 20,
+		.size	= 31 << 20,
+	},
+	{
+		.name	= "MDA2",
+		.offset	= (1 << 20) + (31 << 20),
+		/*
+		 * Assign all the rest as "MDA2", and the total size is
+		 * calculated by the following formula.  Make sure to double
+		 * the number of sectors assigned to "Boot Block" and "SDA".
+		 *
+		 *  Total       Boot   SDA                   MDA0 MDA1
+		 * {7920640 - ((4096 + 65536) * 2)} * 512 - {(1 + 32) << 20}
+		 */
+		.size	= 0xEB780000,
+	},
+};
+
+static struct resource sh_flctl_resources[] = {
+	[0] = {
+		.start	= 0xee000000,
+		.end	= 0xee00006f,
+		.flags	= IORESOURCE_MEM,
+	}
+};
+
+static struct sh_flctl_platform_data nand_flash_data0 = {
+	.parts		= nand_partition_info0,
+	.nr_parts	= ARRAY_SIZE(nand_partition_info0),
+	.flcmncr_val	= BUSYON | SHBUSSEL | SEL_16BIT | SNAND_E |
+			  ENDIAN | PULSE0 | CE1_ENABLE | TYPESEL_SET,
+};
+
+static struct sh_flctl_platform_data nand_flash_data1 = {
+	.parts		= nand_partition_info1,
+	.nr_parts	= ARRAY_SIZE(nand_partition_info1),
+	.flcmncr_val	= BUSYON | SHBUSSEL | SEL_16BIT | SNAND_E |
+			  ENDIAN | PULSE0 | CE1_ENABLE | TYPESEL_SET,
+};
+
+static struct platform_device sh_flctl_device[] = {
+	[0] = {
+		.name		= "sh_flctl",
+		.id		= 0,
+		.resource	= sh_flctl_resources,
+		.num_resources	= ARRAY_SIZE(sh_flctl_resources),
+		.dev		= {
+			.platform_data = &nand_flash_data0,
+		},
+	},
+	[1] = {
+		.name		= "sh_flctl",
+		.id		= 1,
+		.resource	= sh_flctl_resources,
+		.num_resources	= ARRAY_SIZE(sh_flctl_resources),
+		.dev		= {
+			.platform_data = &nand_flash_data1,
+		},
+	},
+};
 
 static struct r8a66597_platdata usb_host_data = {
 	.on_chip	= 1,
@@ -514,6 +597,8 @@ static struct platform_device *ag5evm_devices[] __initdata = {
 	&sdhi1_device,
 	&fsi_device,
 	&sh_mmcif_device,
+	&sh_flctl_device[0],
+	&sh_flctl_device[1],
 	&lcdc_device,
 	&mfis_device,
 
@@ -706,6 +791,7 @@ void __init ag5evm_init_irq(void)
 		pr_warning("Failed to get sdhi1_2 irq\n");
 }
 
+#define FLCKCR		0xe6150014
 #define SUBCKCR		0xe6150080
 #define SRCR2		0xe61580b0
 
@@ -820,6 +906,11 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_FSIAIBT_PU, NULL);
 	gpio_request(GPIO_FN_FSIAISLD_PU, NULL);
 	gpio_request(GPIO_FN_FSIAOSLD, NULL);
+
+#ifdef CONFIG_MTD_NAND_SH_FLCTL
+	gpio_request(GPIO_FN_FCE1_, NULL);
+	__raw_writel(0x05, FLCKCR);
+#endif
 
 	/* Unreset LCD Panel */
 	gpio_request(GPIO_PORT217, NULL);
