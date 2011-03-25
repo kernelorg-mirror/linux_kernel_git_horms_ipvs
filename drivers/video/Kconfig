@@ -1906,6 +1906,20 @@ config FB_SH_MOBILE_LCDC
 	---help---
 	  Frame buffer driver for the on-chip SH-Mobile LCD controller.
 
+config FB_SH_MOBILE_DOUBLE_BUF
+	bool "SuperH Mobile double buffer support"
+	depends on FB_SH_MOBILE_LCDC
+	default y
+	help
+	  SuperH Mobile LCDC framebuffer support double buffer.
+
+config FB_SH_MOBILE_ARGB8888
+	bool "SuperH Mobile ARGB8888 support"
+	depends on FB_SH_MOBILE_LCDC
+	default y
+	help
+	  SuperH Mobile LCDC framebuffer support ARGB8888.
+
 config FB_TMIO
 	tristate "Toshiba Mobile IO FrameBuffer support"
 	depends on FB && MFD_CORE

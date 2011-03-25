@@ -527,14 +527,18 @@ static struct sh_mobile_lcdc_info lcdc_info = {
 	/* LCDC0 */
 	.ch[0] = {
 		.chan = LCDC_CHAN_MAINLCD,
+#ifdef CONFIG_FB_SH_MOBILE_ARGB8888
+		.bpp = 32,
+#else
 		.bpp = 16,
+#endif
 		.interface_type		= RGB24,
 		.clock_divider		= 1,
 		.flags			= LCDC_FLAGS_DWPOL,
 		.lcd_cfg = {
 			.name		= "WVGA",
-			.xres		= 480,
-			.yres		= 854,
+			.xres		= SH_MLCD_WIDTH,
+			.yres		= SH_MLCD_HEIGHT,
 			.left_margin	= 64,
 			.right_margin	= 8,
 			.hsync_len	= 16,

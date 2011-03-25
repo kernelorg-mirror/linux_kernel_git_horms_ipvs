@@ -8,6 +8,24 @@
  * for more details.
  */
 
+/*
+ * drivers/video/sh_mobile_lcdcfb.c
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; version 2 of the License.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ *
+ */
+
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/delay.h>
@@ -24,782 +42,686 @@
 #include <video/sh_mobile_lcdc.h>
 #include <asm/atomic.h>
 
+#include <rtapi/screen_display.h>
+#include <rtapi/screen_common.h>
+
+#define CHAN_NUM 2
+
 #define PALETTE_NR 16
 #define SIDE_B_OFFSET 0x1000
 #define MIRROR_OFFSET 0x2000
 
-/* shared registers */
-#define _LDDCKR 0x410
-#define _LDDCKSTPR 0x414
-#define _LDINTR 0x468
-#define _LDSR 0x46c
-#define _LDCNT1R 0x470
-#define _LDCNT2R 0x474
-#define _LDRCNTR 0x478
-#define _LDDDSR 0x47c
-#define _LDDWD0R 0x800
-#define _LDDRDR 0x840
-#define _LDDWAR 0x900
-#define _LDDRAR 0x904
-
-/* shared registers and their order for context save/restore */
-static int lcdc_shared_regs[] = {
-	_LDDCKR,
-	_LDDCKSTPR,
-	_LDINTR,
-	_LDDDSR,
-	_LDCNT1R,
-	_LDCNT2R,
-};
-#define NR_SHARED_REGS ARRAY_SIZE(lcdc_shared_regs)
-
-/* per-channel registers */
-enum { LDDCKPAT1R, LDDCKPAT2R, LDMT1R, LDMT2R, LDMT3R, LDDFR, LDSM1R,
-       LDSM2R, LDSA1R, LDMLSR, LDHCNR, LDHSYNR, LDVLNR, LDVSYNR, LDPMR,
-       NR_CH_REGS };
-
-static unsigned long lcdc_offs_mainlcd[NR_CH_REGS] = {
-	[LDDCKPAT1R] = 0x400,
-	[LDDCKPAT2R] = 0x404,
-	[LDMT1R] = 0x418,
-	[LDMT2R] = 0x41c,
-	[LDMT3R] = 0x420,
-	[LDDFR] = 0x424,
-	[LDSM1R] = 0x428,
-	[LDSM2R] = 0x42c,
-	[LDSA1R] = 0x430,
-	[LDMLSR] = 0x438,
-	[LDHCNR] = 0x448,
-	[LDHSYNR] = 0x44c,
-	[LDVLNR] = 0x450,
-	[LDVSYNR] = 0x454,
-	[LDPMR] = 0x460,
+struct TN_PAKET_DATA{
+	unsigned long	data1;
+	unsigned long	data2;
 };
 
-static unsigned long lcdc_offs_sublcd[NR_CH_REGS] = {
-	[LDDCKPAT1R] = 0x408,
-	[LDDCKPAT2R] = 0x40c,
-	[LDMT1R] = 0x600,
-	[LDMT2R] = 0x604,
-	[LDMT3R] = 0x608,
-	[LDDFR] = 0x60c,
-	[LDSM1R] = 0x610,
-	[LDSM2R] = 0x614,
-	[LDSA1R] = 0x618,
-	[LDMLSR] = 0x620,
-	[LDHCNR] = 0x624,
-	[LDHSYNR] = 0x628,
-	[LDVLNR] = 0x62c,
-	[LDVSYNR] = 0x630,
-	[LDPMR] = 0x63c,
+struct TN_PAKET_DATA mcap_off = {
+	0x29000200, 0xB2000000
 };
 
-#define START_LCDC	0x00000001
-#define LCDC_RESET	0x00000100
-#define DISPLAY_BEU	0x00000008
-#define LCDC_ENABLE	0x00000001
-#define LDINTR_FE	0x00000400
-#define LDINTR_VSE	0x00000200
-#define LDINTR_VEE	0x00000100
-#define LDINTR_FS	0x00000004
-#define LDINTR_VSS	0x00000002
-#define LDINTR_VES	0x00000001
-#define LDRCNTR_SRS	0x00020000
-#define LDRCNTR_SRC	0x00010000
-#define LDRCNTR_MRS	0x00000002
-#define LDRCNTR_MRC	0x00000001
-#define LDSR_MRS	0x00000100
+struct TN_PAKET_DATA mcap_on = {
+	0x29000200, 0xB2030000
+};
+
+struct TN_PAKET_DATA long_paket_data1[] = {
+	{ 0x29000300, 0xEF010100 },
+	{ 0x29000300, 0xEF606700 },
+	{ 0x29000200, 0x6E460000 },
+	{ 0, 0 }
+};
+struct TN_PAKET_DATA long_paket_data2[] = {
+	{ 0x29000200, 0x53000000 },
+	{ 0x29000200, 0x540B0000 },
+	{ 0x29000200, 0x55030000 },
+	{ 0x29000200, 0x56100000 },
+	{ 0x29000200, 0x57000000 },
+	{ 0x29000200, 0x58030000 },
+	{ 0x29000200, 0x593F0000 },
+	{ 0x29000200, 0x5AFD0000 },
+	{ 0x29000200, 0x5B000000 },
+	{ 0x29000200, 0x5C000000 },
+	{ 0x29000200, 0x5D000000 },
+	{ 0x29000200, 0x5E160000 },
+	{ 0x29000200, 0x5F030000 },
+	{ 0x29000200, 0x60010000 },
+	{ 0x29000200, 0x61000000 },
+	{ 0x29000200, 0x62040000 },
+	{ 0x29000200, 0x67710000 },
+	{ 0x29000200, 0x681E0000 },
+	{ 0x29000200, 0x692D0000 },
+	{ 0x29000200, 0x6A060000 },
+	{ 0x29000200, 0x6B010000 },
+	{ 0x29000200, 0x6C070000 },
+	{ 0x29000200, 0x6D050000 },
+	{ 0x29000200, 0x6E460000 },
+	{ 0x29000200, 0x6F140000 },
+	{ 0x29000200, 0x70170000 },
+	{ 0x29000200, 0x71330000 },
+	{ 0x29000200, 0x720F0000 },
+	{ 0x29000200, 0x73000000 },
+	{ 0x29000200, 0x740F0000 },
+	{ 0x29000200, 0x75000000 },
+	{ 0x29000200, 0x760B0000 },
+	{ 0x29000200, 0x77530000 },
+	{ 0x29000200, 0x78350000 },
+	{ 0x29000200, 0x79410000 },
+	{ 0x29000200, 0x7A000000 },
+	{ 0x29000200, 0x7BFC0000 },
+	{ 0x29000200, 0x7C190000 },
+	{ 0x29000200, 0x7D1E0000 },
+	{ 0x29000200, 0x7E230000 },
+	{ 0x29000200, 0x7F200000 },
+	{ 0x29000200, 0x80000000 },
+	{ 0x29000200, 0x81FC0000 },
+	{ 0x29000200, 0x82000000 },
+	{ 0x29000200, 0x83000000 },
+	{ 0x29000200, 0x84000000 },
+	{ 0x29000200, 0x85000000 },
+	{ 0x29000200, 0x86000000 },
+	{ 0x29000200, 0x87FC0000 },
+	{ 0x29000200, 0x88050000 },
+	{ 0x29000200, 0x89B80000 },
+	{ 0x29000200, 0x8A920000 },
+	{ 0x29000200, 0x8B010000 },
+	{ 0x29000200, 0x8C000000 },
+	{ 0x29000200, 0x8D0F0000 },
+	{ 0x29000200, 0x8E660000 },
+	{ 0x29000200, 0x8F6B0000 },
+	{ 0x29000200, 0x90700000 },
+	{ 0x29000200, 0x91770000 },
+	{ 0x29000200, 0x92840000 },
+	{ 0x29000200, 0x93930000 },
+	{ 0x29000200, 0x94A20000 },
+	{ 0x29000200, 0x95B20000 },
+	{ 0x29000200, 0x96C10000 },
+	{ 0x29000200, 0x97CE0000 },
+	{ 0x29000200, 0x98DA0000 },
+	{ 0x29000200, 0x99E40000 },
+	{ 0x29000200, 0x9AEC0000 },
+	{ 0x29000200, 0x9BF30000 },
+	{ 0x29000200, 0x9CF90000 },
+	{ 0x29000200, 0x9DFF0000 },
+	{ 0x29000200, 0x9E000000 },
+	{ 0x29000200, 0x9F030000 },
+	{ 0x29000200, 0xA0550000 },
+	{ 0x29000200, 0xB3000000 },
+	{ 0x29000200, 0xB44F0000 },
+	{ 0x29000200, 0xC7000000 },
+	{ 0x29000200, 0xC8010000 },
+	{ 0x29000200, 0xC9000000 },
+	{ 0x29000200, 0xCA000000 },
+	{ 0, 0 }
+};
 
 struct sh_mobile_lcdc_priv;
 struct sh_mobile_lcdc_chan {
 	struct sh_mobile_lcdc_priv *lcdc;
-	unsigned long *reg_offs;
-	unsigned long ldmt1r_value;
-	unsigned long enabled; /* ME and SE in LDCNT2R */
 	struct sh_mobile_lcdc_chan_cfg cfg;
 	u32 pseudo_palette[PALETTE_NR];
-	unsigned long saved_ch_regs[NR_CH_REGS];
 	struct fb_info *info;
 	dma_addr_t dma_handle;
-	struct fb_deferred_io defio;
-	struct scatterlist *sglist;
-	unsigned long frame_end;
 	unsigned long pan_offset;
-	wait_queue_head_t frame_end_wait;
-	struct completion vsync_completion;
 };
 
 struct sh_mobile_lcdc_priv {
-	void __iomem *base;
-	int irq;
-	atomic_t hw_usecnt;
 	struct device *dev;
-	struct clk *dot_clk;
-	unsigned long lddckr;
-	struct sh_mobile_lcdc_chan ch[2];
-	unsigned long saved_shared_regs[NR_SHARED_REGS];
-	int started;
+	struct sh_mobile_lcdc_chan ch[CHAN_NUM];
 };
 
-static bool banked(int reg_nr)
-{
-	switch (reg_nr) {
-	case LDMT1R:
-	case LDMT2R:
-	case LDMT3R:
-	case LDDFR:
-	case LDSM1R:
-	case LDSA1R:
-	case LDMLSR:
-	case LDHCNR:
-	case LDHSYNR:
-	case LDVLNR:
-	case LDVSYNR:
-		return true;
-	}
-	return false;
-}
-
-static void lcdc_write_chan(struct sh_mobile_lcdc_chan *chan,
-			    int reg_nr, unsigned long data)
-{
-	iowrite32(data, chan->lcdc->base + chan->reg_offs[reg_nr]);
-	if (banked(reg_nr))
-		iowrite32(data, chan->lcdc->base + chan->reg_offs[reg_nr] +
-			  SIDE_B_OFFSET);
-}
-
-static void lcdc_write_chan_mirror(struct sh_mobile_lcdc_chan *chan,
-			    int reg_nr, unsigned long data)
-{
-	iowrite32(data, chan->lcdc->base + chan->reg_offs[reg_nr] +
-		  MIRROR_OFFSET);
-}
-
-static unsigned long lcdc_read_chan(struct sh_mobile_lcdc_chan *chan,
-				    int reg_nr)
-{
-	return ioread32(chan->lcdc->base + chan->reg_offs[reg_nr]);
-}
-
-static void lcdc_write(struct sh_mobile_lcdc_priv *priv,
-		       unsigned long reg_offs, unsigned long data)
-{
-	iowrite32(data, priv->base + reg_offs);
-}
-
-static unsigned long lcdc_read(struct sh_mobile_lcdc_priv *priv,
-			       unsigned long reg_offs)
-{
-	return ioread32(priv->base + reg_offs);
-}
-
-static void lcdc_wait_bit(struct sh_mobile_lcdc_priv *priv,
-			  unsigned long reg_offs,
-			  unsigned long mask, unsigned long until)
-{
-	while ((lcdc_read(priv, reg_offs) & mask) != until)
-		cpu_relax();
-}
-
-static int lcdc_chan_is_sublcd(struct sh_mobile_lcdc_chan *chan)
-{
-	return chan->cfg.chan == LCDC_CHAN_SUBLCD;
-}
-
-static void lcdc_sys_write_index(void *handle, unsigned long data)
-{
-	struct sh_mobile_lcdc_chan *ch = handle;
-
-	lcdc_write(ch->lcdc, _LDDWD0R, data | 0x10000000);
-	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
-	lcdc_write(ch->lcdc, _LDDWAR, 1 | (lcdc_chan_is_sublcd(ch) ? 2 : 0));
-	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
-}
-
-static void lcdc_sys_write_data(void *handle, unsigned long data)
-{
-	struct sh_mobile_lcdc_chan *ch = handle;
-
-	lcdc_write(ch->lcdc, _LDDWD0R, data | 0x11000000);
-	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
-	lcdc_write(ch->lcdc, _LDDWAR, 1 | (lcdc_chan_is_sublcd(ch) ? 2 : 0));
-	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
-}
-
-static unsigned long lcdc_sys_read_data(void *handle)
-{
-	struct sh_mobile_lcdc_chan *ch = handle;
-
-	lcdc_write(ch->lcdc, _LDDRDR, 0x01000000);
-	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
-	lcdc_write(ch->lcdc, _LDDRAR, 1 | (lcdc_chan_is_sublcd(ch) ? 2 : 0));
-	udelay(1);
-	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
-
-	return lcdc_read(ch->lcdc, _LDDRDR) & 0x3ffff;
-}
-
-struct sh_mobile_lcdc_sys_bus_ops sh_mobile_lcdc_sys_bus_ops = {
-	lcdc_sys_write_index,
-	lcdc_sys_write_data,
-	lcdc_sys_read_data,
+struct sh_mobile_lcdc_ext_param {
+	struct semaphore sem_lcd;
+	int lcd_type;
+	void *aInfo;
+	unsigned short o_mode;
+	unsigned int phy_addr;
+	unsigned int vir_addr;
+	unsigned short rect_x;
+	unsigned short rect_y;
+	unsigned short rect_width;
+	unsigned short rect_height;
+	unsigned short alpha;
+	unsigned short key_clr;
+	unsigned short v4l2_state;
 };
 
-static void sh_mobile_lcdc_clk_on(struct sh_mobile_lcdc_priv *priv)
-{
-	if (atomic_inc_and_test(&priv->hw_usecnt)) {
-		pm_runtime_get_sync(priv->dev);
-		if (priv->dot_clk)
-			clk_enable(priv->dot_clk);
-	}
-}
-
-static void sh_mobile_lcdc_clk_off(struct sh_mobile_lcdc_priv *priv)
-{
-	if (atomic_sub_return(1, &priv->hw_usecnt) == -1) {
-		if (priv->dot_clk)
-			clk_disable(priv->dot_clk);
-		pm_runtime_put(priv->dev);
-	}
-}
-
-static int sh_mobile_lcdc_sginit(struct fb_info *info,
-				  struct list_head *pagelist)
-{
-	struct sh_mobile_lcdc_chan *ch = info->par;
-	unsigned int nr_pages_max = info->fix.smem_len >> PAGE_SHIFT;
-	struct page *page;
-	int nr_pages = 0;
-
-	sg_init_table(ch->sglist, nr_pages_max);
-
-	list_for_each_entry(page, pagelist, lru)
-		sg_set_page(&ch->sglist[nr_pages++], page, PAGE_SIZE, 0);
-
-	return nr_pages;
-}
-
-static void sh_mobile_lcdc_deferred_io(struct fb_info *info,
-				       struct list_head *pagelist)
-{
-	struct sh_mobile_lcdc_chan *ch = info->par;
-	struct sh_mobile_lcdc_board_cfg	*bcfg = &ch->cfg.board_cfg;
-
-	/* enable clocks before accessing hardware */
-	sh_mobile_lcdc_clk_on(ch->lcdc);
-
-	/*
-	 * It's possible to get here without anything on the pagelist via
-	 * sh_mobile_lcdc_deferred_io_touch() or via a userspace fsync()
-	 * invocation. In the former case, the acceleration routines are
-	 * stepped in to when using the framebuffer console causing the
-	 * workqueue to be scheduled without any dirty pages on the list.
-	 *
-	 * Despite this, a panel update is still needed given that the
-	 * acceleration routines have their own methods for writing in
-	 * that still need to be updated.
-	 *
-	 * The fsync() and empty pagelist case could be optimized for,
-	 * but we don't bother, as any application exhibiting such
-	 * behaviour is fundamentally broken anyways.
-	 */
-	if (!list_empty(pagelist)) {
-		unsigned int nr_pages = sh_mobile_lcdc_sginit(info, pagelist);
-
-		/* trigger panel update */
-		dma_map_sg(info->dev, ch->sglist, nr_pages, DMA_TO_DEVICE);
-		if (bcfg->start_transfer)
-			bcfg->start_transfer(bcfg->board_data, ch,
-					     &sh_mobile_lcdc_sys_bus_ops);
-		lcdc_write_chan(ch, LDSM2R, 1);
-		dma_unmap_sg(info->dev, ch->sglist, nr_pages, DMA_TO_DEVICE);
-	} else {
-		if (bcfg->start_transfer)
-			bcfg->start_transfer(bcfg->board_data, ch,
-					     &sh_mobile_lcdc_sys_bus_ops);
-		lcdc_write_chan(ch, LDSM2R, 1);
-	}
-}
-
-static void sh_mobile_lcdc_deferred_io_touch(struct fb_info *info)
-{
-	struct fb_deferred_io *fbdefio = info->fbdefio;
-
-	if (fbdefio)
-		schedule_delayed_work(&info->deferred_work, fbdefio->delay);
-}
-
-static irqreturn_t sh_mobile_lcdc_irq(int irq, void *data)
-{
-	struct sh_mobile_lcdc_priv *priv = data;
-	struct sh_mobile_lcdc_chan *ch;
-	unsigned long tmp;
-	unsigned long ldintr;
-	int is_sub;
-	int k;
-
-	/* acknowledge interrupt */
-	ldintr = tmp = lcdc_read(priv, _LDINTR);
-	/*
-	 * disable further VSYNC End IRQs, preserve all other enabled IRQs,
-	 * write 0 to bits 0-6 to ack all triggered IRQs.
-	 */
-	tmp &= 0xffffff00 & ~LDINTR_VEE;
-	lcdc_write(priv, _LDINTR, tmp);
-
-	/* figure out if this interrupt is for main or sub lcd */
-	is_sub = (lcdc_read(priv, _LDSR) & (1 << 10)) ? 1 : 0;
-
-	/* wake up channel and disable clocks */
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
-		ch = &priv->ch[k];
-
-		if (!ch->enabled)
-			continue;
-
-		/* Frame Start */
-		if (ldintr & LDINTR_FS) {
-			if (is_sub == lcdc_chan_is_sublcd(ch)) {
-				ch->frame_end = 1;
-				wake_up(&ch->frame_end_wait);
-
-				sh_mobile_lcdc_clk_off(priv);
-			}
-		}
-
-		/* VSYNC End */
-		if (ldintr & LDINTR_VES)
-			complete(&ch->vsync_completion);
-	}
-
-	return IRQ_HANDLED;
-}
-
-static void sh_mobile_lcdc_start_stop(struct sh_mobile_lcdc_priv *priv,
-				      int start)
-{
-	unsigned long tmp = lcdc_read(priv, _LDCNT2R);
-	int k;
-
-	/* start or stop the lcdc */
-	if (start)
-		lcdc_write(priv, _LDCNT2R, tmp | START_LCDC);
-	else
-		lcdc_write(priv, _LDCNT2R, tmp & ~START_LCDC);
-
-	/* wait until power is applied/stopped on all channels */
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++)
-		if (lcdc_read(priv, _LDCNT2R) & priv->ch[k].enabled)
-			while (1) {
-				tmp = lcdc_read_chan(&priv->ch[k], LDPMR) & 3;
-				if (start && tmp == 3)
-					break;
-				if (!start && tmp == 0)
-					break;
-				cpu_relax();
-			}
-
-	if (!start)
-		lcdc_write(priv, _LDDCKSTPR, 1); /* stop dotclock */
-}
-
-static int sh_mobile_lcdc_start(struct sh_mobile_lcdc_priv *priv)
-{
-	struct sh_mobile_lcdc_chan *ch;
-	struct fb_videomode *lcd_cfg;
-	struct sh_mobile_lcdc_board_cfg	*board_cfg;
-	unsigned long tmp;
-	int k, m;
-	int ret = 0;
-
-	/* enable clocks before accessing the hardware */
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++)
-		if (priv->ch[k].enabled)
-			sh_mobile_lcdc_clk_on(priv);
-
-	/* reset */
-	lcdc_write(priv, _LDCNT2R, lcdc_read(priv, _LDCNT2R) | LCDC_RESET);
-	lcdc_wait_bit(priv, _LDCNT2R, LCDC_RESET, 0);
-
-	/* enable LCDC channels */
-	tmp = lcdc_read(priv, _LDCNT2R);
-	tmp |= priv->ch[0].enabled;
-	tmp |= priv->ch[1].enabled;
-	lcdc_write(priv, _LDCNT2R, tmp);
-
-	/* read data from external memory, avoid using the BEU for now */
-	lcdc_write(priv, _LDCNT2R, lcdc_read(priv, _LDCNT2R) & ~DISPLAY_BEU);
-
-	/* stop the lcdc first */
-	sh_mobile_lcdc_start_stop(priv, 0);
-
-	/* configure clocks */
-	tmp = priv->lddckr;
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
-		ch = &priv->ch[k];
-
-		if (!priv->ch[k].enabled)
-			continue;
-
-		m = ch->cfg.clock_divider;
-		if (!m)
-			continue;
-
-		if (m == 1)
-			m = 1 << 6;
-		tmp |= m << (lcdc_chan_is_sublcd(ch) ? 8 : 0);
-
-		lcdc_write_chan(ch, LDDCKPAT1R, 0x00000000);
-		lcdc_write_chan(ch, LDDCKPAT2R, (1 << (m/2)) - 1);
-	}
-
-	lcdc_write(priv, _LDDCKR, tmp);
-
-	/* start dotclock again */
-	lcdc_write(priv, _LDDCKSTPR, 0);
-	lcdc_wait_bit(priv, _LDDCKSTPR, ~0, 0);
-
-	/* interrupts are disabled to begin with */
-	lcdc_write(priv, _LDINTR, 0);
-
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
-		ch = &priv->ch[k];
-		lcd_cfg = &ch->cfg.lcd_cfg;
-
-		if (!ch->enabled)
-			continue;
-
-		tmp = ch->ldmt1r_value;
-		tmp |= (lcd_cfg->sync & FB_SYNC_VERT_HIGH_ACT) ? 0 : 1 << 28;
-		tmp |= (lcd_cfg->sync & FB_SYNC_HOR_HIGH_ACT) ? 0 : 1 << 27;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_DWPOL) ? 1 << 26 : 0;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_DIPOL) ? 1 << 25 : 0;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_DAPOL) ? 1 << 24 : 0;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_HSCNT) ? 1 << 17 : 0;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_DWCNT) ? 1 << 16 : 0;
-		lcdc_write_chan(ch, LDMT1R, tmp);
-
-		/* setup SYS bus */
-		lcdc_write_chan(ch, LDMT2R, ch->cfg.sys_bus_cfg.ldmt2r);
-		lcdc_write_chan(ch, LDMT3R, ch->cfg.sys_bus_cfg.ldmt3r);
-
-		/* horizontal configuration */
-		tmp = lcd_cfg->xres + lcd_cfg->hsync_len;
-		tmp += lcd_cfg->left_margin;
-		tmp += lcd_cfg->right_margin;
-		tmp /= 8; /* HTCN */
-		tmp |= (lcd_cfg->xres / 8) << 16; /* HDCN */
-		lcdc_write_chan(ch, LDHCNR, tmp);
-
-		tmp = lcd_cfg->xres;
-		tmp += lcd_cfg->right_margin;
-		tmp /= 8; /* HSYNP */
-		tmp |= (lcd_cfg->hsync_len / 8) << 16; /* HSYNW */
-		lcdc_write_chan(ch, LDHSYNR, tmp);
-
-		/* power supply */
-		lcdc_write_chan(ch, LDPMR, 0);
-
-		/* vertical configuration */
-		tmp = lcd_cfg->yres + lcd_cfg->vsync_len;
-		tmp += lcd_cfg->upper_margin;
-		tmp += lcd_cfg->lower_margin; /* VTLN */
-		tmp |= lcd_cfg->yres << 16; /* VDLN */
-		lcdc_write_chan(ch, LDVLNR, tmp);
-
-		tmp = lcd_cfg->yres;
-		tmp += lcd_cfg->lower_margin; /* VSYNP */
-		tmp |= lcd_cfg->vsync_len << 16; /* VSYNW */
-		lcdc_write_chan(ch, LDVSYNR, tmp);
-
-		board_cfg = &ch->cfg.board_cfg;
-		if (board_cfg->setup_sys)
-			ret = board_cfg->setup_sys(board_cfg->board_data, ch,
-						   &sh_mobile_lcdc_sys_bus_ops);
-		if (ret)
-			return ret;
-	}
-
-	/* word and long word swap */
-	lcdc_write(priv, _LDDDSR, lcdc_read(priv, _LDDDSR) | 6);
-
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
-		ch = &priv->ch[k];
-
-		if (!priv->ch[k].enabled)
-			continue;
-
-		/* set bpp format in PKF[4:0] */
-		tmp = lcdc_read_chan(ch, LDDFR);
-		tmp &= ~(0x0001001f);
-		tmp |= (ch->info->var.bits_per_pixel == 16) ? 3 : 0;
-		lcdc_write_chan(ch, LDDFR, tmp);
-
-		/* point out our frame buffer */
-		lcdc_write_chan(ch, LDSA1R, ch->info->fix.smem_start);
-
-		/* set line size */
-		lcdc_write_chan(ch, LDMLSR, ch->info->fix.line_length);
-
-		/* setup deferred io if SYS bus */
-		tmp = ch->cfg.sys_bus_cfg.deferred_io_msec;
-		if (ch->ldmt1r_value & (1 << 12) && tmp) {
-			ch->defio.deferred_io = sh_mobile_lcdc_deferred_io;
-			ch->defio.delay = msecs_to_jiffies(tmp);
-			ch->info->fbdefio = &ch->defio;
-			fb_deferred_io_init(ch->info);
-
-			/* one-shot mode */
-			lcdc_write_chan(ch, LDSM1R, 1);
-
-			/* enable "Frame End Interrupt Enable" bit */
-			lcdc_write(priv, _LDINTR, LDINTR_FE);
-
-		} else {
-			/* continuous read mode */
-			lcdc_write_chan(ch, LDSM1R, 0);
-		}
-	}
-
-	/* display output */
-	lcdc_write(priv, _LDCNT1R, LCDC_ENABLE);
-
-	/* start the lcdc */
-	sh_mobile_lcdc_start_stop(priv, 1);
-	priv->started = 1;
-
-	/* tell the board code to enable the panel */
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
-		ch = &priv->ch[k];
-		if (!ch->enabled)
-			continue;
-
-		board_cfg = &ch->cfg.board_cfg;
-		if (board_cfg->display_on)
-			board_cfg->display_on(board_cfg->board_data);
-	}
-
-	return 0;
-}
-
-static void sh_mobile_lcdc_stop(struct sh_mobile_lcdc_priv *priv)
-{
-	struct sh_mobile_lcdc_chan *ch;
-	struct sh_mobile_lcdc_board_cfg	*board_cfg;
-	int k;
-
-	/* clean up deferred io and ask board code to disable panel */
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
-		ch = &priv->ch[k];
-		if (!ch->enabled)
-			continue;
-
-		/* deferred io mode:
-		 * flush frame, and wait for frame end interrupt
-		 * clean up deferred io and enable clock
-		 */
-		if (ch->info && ch->info->fbdefio) {
-			ch->frame_end = 0;
-			schedule_delayed_work(&ch->info->deferred_work, 0);
-			wait_event(ch->frame_end_wait, ch->frame_end);
-			fb_deferred_io_cleanup(ch->info);
-			ch->info->fbdefio = NULL;
-			sh_mobile_lcdc_clk_on(priv);
-		}
-
-		board_cfg = &ch->cfg.board_cfg;
-		if (board_cfg->display_off)
-			board_cfg->display_off(board_cfg->board_data);
-	}
-
-	/* stop the lcdc */
-	if (priv->started) {
-		sh_mobile_lcdc_start_stop(priv, 0);
-		priv->started = 0;
-	}
-
-	/* stop clocks */
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++)
-		if (priv->ch[k].enabled)
-			sh_mobile_lcdc_clk_off(priv);
-}
-
-static int sh_mobile_lcdc_check_interface(struct sh_mobile_lcdc_chan *ch)
-{
-	int ifm, miftyp;
-
-	switch (ch->cfg.interface_type) {
-	case RGB8: ifm = 0; miftyp = 0; break;
-	case RGB9: ifm = 0; miftyp = 4; break;
-	case RGB12A: ifm = 0; miftyp = 5; break;
-	case RGB12B: ifm = 0; miftyp = 6; break;
-	case RGB16: ifm = 0; miftyp = 7; break;
-	case RGB18: ifm = 0; miftyp = 10; break;
-	case RGB24: ifm = 0; miftyp = 11; break;
-	case SYS8A: ifm = 1; miftyp = 0; break;
-	case SYS8B: ifm = 1; miftyp = 1; break;
-	case SYS8C: ifm = 1; miftyp = 2; break;
-	case SYS8D: ifm = 1; miftyp = 3; break;
-	case SYS9: ifm = 1; miftyp = 4; break;
-	case SYS12: ifm = 1; miftyp = 5; break;
-	case SYS16A: ifm = 1; miftyp = 7; break;
-	case SYS16B: ifm = 1; miftyp = 8; break;
-	case SYS16C: ifm = 1; miftyp = 9; break;
-	case SYS18: ifm = 1; miftyp = 10; break;
-	case SYS24: ifm = 1; miftyp = 11; break;
-	default: goto bad;
-	}
-
-	/* SUBLCD only supports SYS interface */
-	if (lcdc_chan_is_sublcd(ch)) {
-		if (ifm == 0)
-			goto bad;
-		else
-			ifm = 0;
-	}
-
-	ch->ldmt1r_value = (ifm << 12) | miftyp;
-	return 0;
- bad:
-	return -EINVAL;
-}
-
-static int sh_mobile_lcdc_setup_clocks(struct platform_device *pdev,
-				       int clock_source,
-				       struct sh_mobile_lcdc_priv *priv)
-{
-	char *str;
-	int icksel;
-
-	switch (clock_source) {
-	case LCDC_CLK_BUS: str = "bus_clk"; icksel = 0; break;
-	case LCDC_CLK_PERIPHERAL: str = "peripheral_clk"; icksel = 1; break;
-	case LCDC_CLK_EXTERNAL: str = NULL; icksel = 2; break;
-	default:
-		return -EINVAL;
-	}
-
-	priv->lddckr = icksel << 16;
-
-	if (str) {
-		priv->dot_clk = clk_get(&pdev->dev, str);
-		if (IS_ERR(priv->dot_clk)) {
-			dev_err(&pdev->dev, "cannot get dot clock %s\n", str);
-			return PTR_ERR(priv->dot_clk);
-		}
-	}
-
-	/* Runtime PM support involves two step for this driver:
-	 * 1) Enable Runtime PM
-	 * 2) Force Runtime PM Resume since hardware is accessed from probe()
-	 */
-	priv->dev = &pdev->dev;
-	pm_runtime_enable(priv->dev);
-	pm_runtime_resume(priv->dev);
-	return 0;
-}
+struct sh_mobile_lcdc_ext_param lcd_ext_param[CHAN_NUM];
 
 static int sh_mobile_lcdc_setcolreg(u_int regno,
 				    u_int red, u_int green, u_int blue,
 				    u_int transp, struct fb_info *info)
 {
-	u32 *palette = info->pseudo_palette;
+	/* No. of hw registers */
+	if (regno >= 256)
+		return 1;
 
-	if (regno >= PALETTE_NR)
-		return -EINVAL;
+	/* grayscale works only partially under directcolor */
+	if (info->var.grayscale) {
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
+		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
+	}
 
-	/* only FB_VISUAL_TRUECOLOR supported */
+#define CNVT_TOHW(val, width) ((((val)<<(width))+0x7FFF-(val))>>16)
+	switch (info->fix.visual) {
+	case FB_VISUAL_TRUECOLOR:	/* FALL THROUGH */
+	case FB_VISUAL_PSEUDOCOLOR:
+	{
+		red = CNVT_TOHW(red, info->var.red.length);
+		green = CNVT_TOHW(green, info->var.green.length);
+		blue = CNVT_TOHW(blue, info->var.blue.length);
+		transp = CNVT_TOHW(transp, info->var.transp.length);
+		break;
+	}
+	case FB_VISUAL_DIRECTCOLOR:
+	{
+		red = CNVT_TOHW(red, 8);	/* expect 8 bit DAC */
+		green = CNVT_TOHW(green, 8);
+		blue = CNVT_TOHW(blue, 8);
+		/* hey, there is bug in transp handling... */
+		transp = CNVT_TOHW(transp, 8);
+		break;
+	}
+	}
+#undef CNVT_TOHW
+	/* Truecolor has hardware independent palette */
+	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
+		u32 v;
 
-	red >>= 16 - info->var.red.length;
-	green >>= 16 - info->var.green.length;
-	blue >>= 16 - info->var.blue.length;
-	transp >>= 16 - info->var.transp.length;
+		if (regno >= 16)
+			return 1;
 
-	palette[regno] = (red << info->var.red.offset) |
-	  (green << info->var.green.offset) |
-	  (blue << info->var.blue.offset) |
-	  (transp << info->var.transp.offset);
+		v = (red << info->var.red.offset) |
+		    (green << info->var.green.offset) |
+		    (blue << info->var.blue.offset) |
+		    (transp << info->var.transp.offset);
+		switch (info->var.bits_per_pixel) {
+		case 16:	/* FALL THROUGH */
+		case 24:	/* FALL THROUGH */
+		case 32:
+			((u32 *) (info->pseudo_palette))[regno] = v;
+			break;
+		case 8:		/* FALL THROUGH */
+		default:
+			break;
+		}
+	}
 
 	return 0;
 }
 
 static struct fb_fix_screeninfo sh_mobile_lcdc_fix  = {
-	.id =		"SH Mobile LCDC",
-	.type =		FB_TYPE_PACKED_PIXELS,
-	.visual =	FB_VISUAL_TRUECOLOR,
-	.accel =	FB_ACCEL_NONE,
-	.xpanstep =	0,
-	.ypanstep =	1,
-	.ywrapstep =	0,
+	.id		= "SH Mobile LCDC",
+	.type		= FB_TYPE_PACKED_PIXELS,
+	.visual		= FB_VISUAL_TRUECOLOR,
+	.accel		= FB_ACCEL_NONE,
+	.xpanstep	= 0,
+	.ypanstep	= 1,
+	.ywrapstep	= 0,
 };
 
-static void sh_mobile_lcdc_fillrect(struct fb_info *info,
-				    const struct fb_fillrect *rect)
+struct rtdisp_func rtdisp = {NULL, NULL, NULL};
+
+void register_disp_func(struct rtdisp_func *pfunc)
 {
-	sys_fillrect(info, rect);
-	sh_mobile_lcdc_deferred_io_touch(info);
+	rtdisp.rtdisp_new		= pfunc->rtdisp_new;
+	rtdisp.rtdisp_set_parameters	= pfunc->rtdisp_set_parameters;
+	rtdisp.rtdisp_get_address	= pfunc->rtdisp_get_address;
+	rtdisp.rtdisp_draw		= pfunc->rtdisp_draw;
+	rtdisp.rtdisp_start_lcd		= pfunc->rtdisp_start_lcd;
+	rtdisp.rtdisp_stop_lcd		= pfunc->rtdisp_stop_lcd;
+	rtdisp.rtdisp_set_lcd_refresh	= pfunc->rtdisp_set_lcd_refresh;
+	rtdisp.rtdisp_write_dsi_short_packet
+		= pfunc->rtdisp_write_dsi_short_packet;
+	rtdisp.rtdisp_write_dsi_long_packet
+		= pfunc->rtdisp_write_dsi_long_packet;
+	rtdisp.rtdisp_set_lcd_if_parameters
+		= pfunc->rtdisp_set_lcd_if_parameters;
+	return;
+}
+EXPORT_SYMBOL(register_disp_func);
+
+static int display_initialize(int lcd_num)
+{
+	screen_disp_param disp_param;
+	screen_disp_get_address disp_addr;
+	screen_disp_write_dsi_long write_dsi_l;
+	screen_disp_write_dsi_short write_dsi_s;
+
+	int ret = 0;
+	struct TN_PAKET_DATA *par;
+	unsigned char	cmd[4];
+	unsigned int i;
+
+	lcd_ext_param[lcd_num].aInfo = rtdisp.rtdisp_new();
+	if (lcd_ext_param[lcd_num].aInfo == NULL) {
+		printk(KERN_ALERT "disp_new err!\n");
+		return -1;
+	}
+
+	disp_param.handle = lcd_ext_param[lcd_num].aInfo;
+	disp_param.output_mode = lcd_ext_param[lcd_num].o_mode;
+	disp_param.key_color = lcd_ext_param[lcd_num].key_clr;
+	disp_param.alpha = lcd_ext_param[lcd_num].alpha;
+
+	ret = rtdisp.rtdisp_set_parameters(&disp_param);
+	if (ret != 0) {
+		printk(KERN_ALERT "disp_set_parameters err!\n");
+		return -1;
+	}
+
+	disp_addr.handle = lcd_ext_param[lcd_num].aInfo;
+	disp_addr.output_mode = lcd_ext_param[lcd_num].o_mode;
+	ret = rtdisp.rtdisp_get_address(&disp_addr);
+	if (ret != 0) {
+		printk(KERN_ALERT "disp_get_address err!\n");
+		return -1;
+	}
+
+	par = &mcap_off;
+	cmd[0] = (par->data2 >> 24) & 0xFF;
+	cmd[1] = (par->data2 >> 16) & 0xFF;
+	cmd[2] = (par->data2 >> 8) & 0xFF;
+	cmd[3] = (par->data2) & 0xFF;
+	write_dsi_l.handle = lcd_ext_param[lcd_num].aInfo;
+	write_dsi_l.data_id = (par->data1 & 0xFF000000) >> 24;
+	write_dsi_l.data_count = (par->data1 & 0x0000FF00) >> 8;
+	write_dsi_l.write_data = (unsigned char *)&cmd[0];
+	ret = rtdisp.rtdisp_write_dsi_long_packet(&write_dsi_l);
+	if (ret != 0) {
+		printk(KERN_ALERT "disp_write_dsi_long err!\n");
+		return -1;
+	}
+
+	for (i = 0; long_paket_data1[i].data1 != 0; i++) {
+		par = &(long_paket_data1[i]);
+		cmd[0] = (par->data2 >> 24) & 0xFF;
+		cmd[1] = (par->data2 >> 16) & 0xFF;
+		cmd[2] = (par->data2 >> 8) & 0xFF;
+		cmd[3] = (par->data2) & 0xFF;
+		write_dsi_l.handle = lcd_ext_param[lcd_num].aInfo;
+		write_dsi_l.data_id = (par->data1 & 0xFF000000) >> 24;
+		write_dsi_l.data_count = (par->data1 & 0x0000FF00) >> 8;
+		write_dsi_l.write_data = (unsigned char *)&cmd[0];
+		ret = rtdisp.rtdisp_write_dsi_long_packet(&write_dsi_l);
+		if (ret != 0) {
+			printk(KERN_ALERT "disp_write_dsi_long err!\n");
+			return -1;
+		}
+	}
+	/* LCD MCAP ON */
+	par = &mcap_on;
+	cmd[0] = (par->data2 >> 24) & 0xFF;
+	cmd[1] = (par->data2 >> 16) & 0xFF;
+	cmd[2] = (par->data2 >> 8) & 0xFF;
+	cmd[3] = (par->data2) & 0xFF;
+	write_dsi_l.handle = lcd_ext_param[lcd_num].aInfo;
+	write_dsi_l.data_id = (par->data1 & 0xFF000000) >> 24;
+	write_dsi_l.data_count = (par->data1 & 0x0000FF00) >> 8;
+	write_dsi_l.write_data = (unsigned char *)&cmd[0];
+	ret = rtdisp.rtdisp_write_dsi_long_packet(&write_dsi_l);
+	if (ret != 0) {
+		printk(KERN_ALERT "disp_write_dsi_long err!\n");
+		return -1;
+	}
+
+	write_dsi_s.handle = lcd_ext_param[lcd_num].aInfo;
+	write_dsi_s.data_id = 0x05;
+	write_dsi_s.reg_address = 0x11;
+	write_dsi_s.write_data = 0x00;
+	ret = rtdisp.rtdisp_write_dsi_short_packet(&write_dsi_s);
+	if (ret != 0) {
+		printk(KERN_ALERT "disp_write_dsi_short err!\n");
+		return -1;
+	}
+
+	/* LCD MCAP OFF */
+	par = &mcap_off;
+	cmd[0] = (par->data2 >> 24) & 0xFF;
+	cmd[1] = (par->data2 >> 16) & 0xFF;
+	cmd[2] = (par->data2 >> 8) & 0xFF;
+	cmd[3] = (par->data2) & 0xFF;
+	write_dsi_l.handle = lcd_ext_param[lcd_num].aInfo;
+	write_dsi_l.data_id = (par->data1 & 0xFF000000) >> 24;
+	write_dsi_l.data_count = (par->data1 & 0x0000FF00) >> 8;
+	write_dsi_l.write_data = (unsigned char *)&cmd[0];
+	ret = rtdisp.rtdisp_write_dsi_long_packet(&write_dsi_l);
+	if (ret != 0) {
+		printk(KERN_ALERT "disp_write_dsi_long err!\n");
+		return -1;
+	}
+
+	for (i = 0; long_paket_data2[i].data1 != 0; i++) {
+		par = &(long_paket_data2[i]);
+		cmd[0] = (par->data2 >> 24) & 0xFF;
+		cmd[1] = (par->data2 >> 16) & 0xFF;
+		cmd[2] = (par->data2 >> 8) & 0xFF;
+		cmd[3] = (par->data2) & 0xFF;
+		write_dsi_l.handle = lcd_ext_param[lcd_num].aInfo;
+		write_dsi_l.data_id = (par->data1 & 0xFF000000) >> 24;
+		write_dsi_l.data_count = (par->data1 & 0x0000FF00) >> 8;
+		write_dsi_l.write_data = (unsigned char *)&cmd[0];
+		ret = rtdisp.rtdisp_write_dsi_long_packet(&write_dsi_l);
+		if (ret != 0) {
+			printk(KERN_ALERT "disp_write_dsi_long err!\n");
+			return -1;
+		}
+	}
+	/* LCD MCAP ON */
+	par = &mcap_on;
+	cmd[0] = (par->data2 >> 24) & 0xFF;
+	cmd[1] = (par->data2 >> 16) & 0xFF;
+	cmd[2] = (par->data2 >> 8) & 0xFF;
+	cmd[3] = (par->data2) & 0xFF;
+	write_dsi_l.handle = lcd_ext_param[lcd_num].aInfo;
+	write_dsi_l.data_id = (par->data1 & 0xFF000000) >> 24;
+	write_dsi_l.data_count = (par->data1 & 0x0000FF00) >> 8;
+	write_dsi_l.write_data = (unsigned char *)&cmd[0];
+	ret = rtdisp.rtdisp_write_dsi_long_packet(&write_dsi_l);
+	if (ret != 0) {
+		printk(KERN_ALERT "disp_write_dsi_long err!\n");
+		return -1;
+	}
+
+	write_dsi_s.handle = lcd_ext_param[lcd_num].aInfo;
+	write_dsi_s.data_id = 0x05;
+	write_dsi_s.reg_address = 0x29;
+	write_dsi_s.write_data = 0x00;
+	ret = rtdisp.rtdisp_write_dsi_short_packet(&write_dsi_s);
+	if (ret != 0) {
+		printk(KERN_ALERT "disp_write_dsi_short err!\n");
+		return -1;
+	}
+
+	return 0;
 }
 
-static void sh_mobile_lcdc_copyarea(struct fb_info *info,
-				    const struct fb_copyarea *area)
+int sh_mobile_lcdc_keyclr_set(unsigned short s_key_clr,
+			      unsigned short output_mode)
 {
-	sys_copyarea(info, area);
-	sh_mobile_lcdc_deferred_io_touch(info);
-}
+	int i, ret;
+	screen_disp_param disp_param;
 
-static void sh_mobile_lcdc_imageblit(struct fb_info *info,
-				     const struct fb_image *image)
-{
-	sys_imageblit(info, image);
-	sh_mobile_lcdc_deferred_io_touch(info);
+	for (i = 0 ; i < CHAN_NUM ; i++) {
+		if (output_mode == lcd_ext_param[i].o_mode)
+			break;
+	}
+	if (i >= CHAN_NUM) {
+		printk(KERN_ALERT "lcdc_key_clr_set param ERR\n");
+		up(&lcd_ext_param[i].sem_lcd);
+		return -1;
+	}
+	if (down_interruptible(&lcd_ext_param[i].sem_lcd)) {
+		printk(KERN_ALERT "down_interruptible failed\n");
+		up(&lcd_ext_param[i].sem_lcd);
+		return -1;
+	}
+
+	lcd_ext_param[i].key_clr = s_key_clr;
+
+	if (rtdisp.rtdisp_new != NULL) {
+		if (lcd_ext_param[i].aInfo == NULL) {
+			ret = display_initialize(i);
+			if (ret != 0) {
+				up(&lcd_ext_param[i].sem_lcd);
+				return -1;
+			}
+		} else {
+			disp_param.handle = lcd_ext_param[i].aInfo;
+			disp_param.output_mode = lcd_ext_param[i].o_mode;
+			disp_param.key_color = lcd_ext_param[i].key_clr;
+			disp_param.alpha = lcd_ext_param[i].alpha;
+			ret = rtdisp.rtdisp_set_parameters(&disp_param);
+			if (ret != 0) {
+				up(&lcd_ext_param[i].sem_lcd);
+				return -1;
+			}
+		}
+	} else {
+		printk(KERN_ALERT "nothing MFI driver\n");
+	}
+
+	up(&lcd_ext_param[i].sem_lcd);
+
+	return 0;
+
 }
+EXPORT_SYMBOL(sh_mobile_lcdc_keyclr_set);
+
+int sh_mobile_lcdc_alpha_set(unsigned short s_alpha,
+			      unsigned short output_mode)
+{
+	int i, ret;
+	screen_disp_param disp_param;
+
+	for (i = 0 ; i < CHAN_NUM ; i++) {
+		if (output_mode == lcd_ext_param[i].o_mode)
+			break;
+	}
+	if (i >= CHAN_NUM) {
+		printk(KERN_ALERT "lcdc_key_clr_set param ERR\n");
+		up(&lcd_ext_param[i].sem_lcd);
+		return -1;
+	}
+	if (down_interruptible(&lcd_ext_param[i].sem_lcd)) {
+		printk(KERN_ALERT "down_interruptible failed\n");
+		up(&lcd_ext_param[i].sem_lcd);
+		return -1;
+	}
+
+	lcd_ext_param[i].alpha = s_alpha;
+
+	if (rtdisp.rtdisp_new != NULL) {
+		if (lcd_ext_param[i].aInfo == NULL) {
+			ret = display_initialize(i);
+			if (ret != 0) {
+				up(&lcd_ext_param[i].sem_lcd);
+				return -1;
+			}
+		} else {
+			disp_param.handle = lcd_ext_param[i].aInfo;
+			disp_param.output_mode = lcd_ext_param[i].o_mode;
+			disp_param.key_color = lcd_ext_param[i].key_clr;
+			disp_param.alpha = lcd_ext_param[i].alpha;
+			ret = rtdisp.rtdisp_set_parameters(&disp_param);
+			if (ret != 0) {
+				up(&lcd_ext_param[i].sem_lcd);
+				return -1;
+			}
+		}
+	} else {
+		printk(KERN_ALERT "nothing MFI driver\n");
+	}
+
+
+	up(&lcd_ext_param[i].sem_lcd);
+
+	return 0;
+
+}
+EXPORT_SYMBOL(sh_mobile_lcdc_alpha_set);
+
+
+int sh_mobile_lcdc_refresh(unsigned short set_state,
+			      unsigned short output_mode)
+{
+	int i, ret;
+	screen_disp_set_lcd_refresh disp_refresh;
+
+	for (i = 0 ; i < CHAN_NUM ; i++) {
+		if (output_mode == lcd_ext_param[i].o_mode)
+			break;
+	}
+	if (i >= CHAN_NUM) {
+		printk(KERN_ALERT "lcdc_key_clr_set param ERR\n");
+		up(&lcd_ext_param[i].sem_lcd);
+		return -1;
+	}
+	if (down_interruptible(&lcd_ext_param[i].sem_lcd)) {
+		printk(KERN_ALERT "down_interruptible failed\n");
+		up(&lcd_ext_param[i].sem_lcd);
+		return -1;
+	}
+
+	lcd_ext_param[i].v4l2_state = set_state;
+	if (rtdisp.rtdisp_new != NULL) {
+		if (lcd_ext_param[i].aInfo != NULL) {
+			disp_refresh.handle = lcd_ext_param[i].aInfo;
+			disp_refresh.output_mode =
+				lcd_ext_param[i].o_mode;
+			disp_refresh.refresh_mode =
+				set_state;
+			ret = rtdisp.rtdisp_set_lcd_refresh(
+				&disp_refresh);
+			if (ret != 0) {
+				up(&lcd_ext_param[i].sem_lcd);
+				return -1;
+			}
+		}
+	} else {
+		printk(KERN_ALERT "nothing MFI driver\n");
+	}
+
+	up(&lcd_ext_param[i].sem_lcd);
+
+	return 0;
+
+}
+EXPORT_SYMBOL(sh_mobile_lcdc_refresh);
 
 static int sh_mobile_fb_pan_display(struct fb_var_screeninfo *var,
 				     struct fb_info *info)
 {
 	struct sh_mobile_lcdc_chan *ch = info->par;
-	struct sh_mobile_lcdc_priv *priv = ch->lcdc;
-	unsigned long ldrcntr;
 	unsigned long new_pan_offset;
 
+	int ret = 0;
+
+/* onscreen buffer 2 */
+	unsigned int i;
+	unsigned short set_format;
+	unsigned char  lcd_num;
+	screen_disp_draw disp_draw;
+#if 0
+	screen_disp_set_lcd_refresh disp_refresh;
+#endif
 	new_pan_offset = (var->yoffset * info->fix.line_length) +
 		(var->xoffset * (info->var.bits_per_pixel / 8));
 
-	if (new_pan_offset == ch->pan_offset)
-		return 0;	/* No change, do nothing */
+	for (i = 0 ; i < CHAN_NUM ; i++) {
+		if (ch->cfg.chan == lcd_ext_param[i].lcd_type)
+			break;
+	}
+	lcd_num = i;
+	if (lcd_num >= CHAN_NUM)
+		return -EINVAL;
 
-	ldrcntr = lcdc_read(priv, _LDRCNTR);
+	if (down_interruptible(&lcd_ext_param[lcd_num].sem_lcd)) {
+		printk(KERN_ALERT "down_interruptible failed\n");
+		return -ERESTARTSYS;
+	}
 
 	/* Set the source address for the next refresh */
-	lcdc_write_chan_mirror(ch, LDSA1R, ch->dma_handle + new_pan_offset);
-	if (lcdc_chan_is_sublcd(ch))
-		lcdc_write(ch->lcdc, _LDRCNTR, ldrcntr ^ LDRCNTR_SRS);
-	else
-		lcdc_write(ch->lcdc, _LDRCNTR, ldrcntr ^ LDRCNTR_MRS);
+
+	if (rtdisp.rtdisp_new != NULL) {
+		if (lcd_ext_param[lcd_num].aInfo == NULL) {
+
+			ret = display_initialize(lcd_num);
+			if (ret != 0) {
+				up(&lcd_ext_param[lcd_num].sem_lcd);
+				return -EIO;
+			}
+		}
+		if (lcd_ext_param[lcd_num].aInfo != NULL) {
+
+#if 0
+			if (lcd_ext_param[lcd_num].v4l2_state
+			    == RT_DISPLAY_REFRESH_ON){
+				disp_refresh.handle =
+					lcd_ext_param[lcd_num].aInfo;
+				disp_refresh.output_mode =
+					lcd_ext_param[lcd_num].o_mode;
+				disp_refresh.refresh_mode =
+					RT_DISPLAY_REFRESH_OFF;
+				ret = rtdisp.rtdisp_set_lcd_refresh(
+					&disp_refresh);
+				if (ret != 0) {
+					up(&lcd_ext_param[lcd_num].sem_lcd);
+					return -EIO;
+				}
+			}
+#endif
+			if (var->bits_per_pixel == 16)
+				set_format = RT_DISPLAY_FORMAT_RGB565;
+			else
+				set_format = RT_DISPLAY_FORMAT_ARGB8888;
+
+#ifdef CONFIG_FB_SH_MOBILE_DOUBLE_BUF
+			disp_draw.handle = lcd_ext_param[lcd_num].aInfo;
+			disp_draw.output_mode = lcd_ext_param[lcd_num].o_mode;
+			disp_draw.draw_rect.x = lcd_ext_param[lcd_num].rect_x;
+			disp_draw.draw_rect.y = lcd_ext_param[lcd_num].rect_y;
+			disp_draw.draw_rect.width =
+				lcd_ext_param[lcd_num].rect_width;
+			disp_draw.draw_rect.height =
+				lcd_ext_param[lcd_num].rect_height;
+			disp_draw.format = set_format;
+			disp_draw.buffer_offset = new_pan_offset;
+			ret = rtdisp.rtdisp_draw(&disp_draw);
+			if (ret != 0) {
+				up(&lcd_ext_param[lcd_num].sem_lcd);
+				return -EIO;
+			}
+#else
+
+			memcpy((void *)lcd_ext_param[lcd_num].vir_addr,
+			       (void *)(info->screen_base + new_pan_offset),
+			       (lcd_ext_param[lcd_num].rect_width *
+				lcd_ext_param[lcd_num].rect_height *
+				var->bits_per_pixel / 8));
+
+			disp_draw.handle = lcd_ext_param[lcd_num].aInfo;
+			disp_draw.output_mode = lcd_ext_param[lcd_num].o_mode;
+			disp_draw.draw_rect.x = lcd_ext_param[lcd_num].rect_x;
+			disp_draw.draw_rect.y = lcd_ext_param[lcd_num].rect_y;
+			disp_draw.draw_rect.width =
+				lcd_ext_param[lcd_num].rect_width;
+			disp_draw.draw_rect.height =
+				lcd_ext_param[lcd_num].rect_height;
+			disp_draw.format = set_format;
+			ret = rtdisp.rtdisp_draw(&disp_draw);
+			if (ret != 0) {
+				up(&lcd_ext_param[lcd_num].sem_lcd);
+				return -EIO;
+			}
+#endif
+
+#if 0
+			if (lcd_ext_param[lcd_num].v4l2_state
+			    == RT_DISPLAY_REFRESH_ON){
+				disp_refresh.handle =
+					lcd_ext_param[lcd_num].aInfo;
+				disp_refresh.output_mode =
+					lcd_ext_param[lcd_num].o_mode;
+				disp_refresh.refresh_mode =
+					RT_DISPLAY_REFRESH_ON;
+				ret = rtdisp.rtdisp_set_lcd_refresh(
+					&disp_refresh);
+				if (ret != 0) {
+					up(&lcd_ext_param[lcd_num].sem_lcd);
+					return -EIO;
+				}
+			}
+#endif
+		}
+	} else {
+
+		printk(KERN_ALERT "nothing MFI driver\n");
+
+	}
 
 	ch->pan_offset = new_pan_offset;
 
-	sh_mobile_lcdc_deferred_io_touch(info);
-
-	return 0;
-}
-
-static int sh_mobile_wait_for_vsync(struct fb_info *info)
-{
-	struct sh_mobile_lcdc_chan *ch = info->par;
-	unsigned long ldintr;
-	int ret;
-
-	/* Enable VSync End interrupt */
-	ldintr = lcdc_read(ch->lcdc, _LDINTR);
-	ldintr |= LDINTR_VEE;
-	lcdc_write(ch->lcdc, _LDINTR, ldintr);
-
-	ret = wait_for_completion_interruptible_timeout(&ch->vsync_completion,
-							msecs_to_jiffies(100));
-	if (!ret)
-		return -ETIMEDOUT;
+	up(&lcd_ext_param[lcd_num].sem_lcd);
 
 	return 0;
 }
@@ -811,7 +733,7 @@ static int sh_mobile_ioctl(struct fb_info *info, unsigned int cmd,
 
 	switch (cmd) {
 	case FBIO_WAITFORVSYNC:
-		retval = sh_mobile_wait_for_vsync(info);
+		retval = 0;
 		break;
 
 	default:
@@ -821,23 +743,87 @@ static int sh_mobile_ioctl(struct fb_info *info, unsigned int cmd,
 	return retval;
 }
 
+static int sh_mobile_mmap(struct fb_info *info, struct vm_area_struct *vma)
+{
+	unsigned long start;
+	unsigned long off;
+	u32 len;
+
+	if (vma->vm_pgoff > (~0UL >> PAGE_SHIFT))
+		return -EINVAL;
+
+	off = vma->vm_pgoff << PAGE_SHIFT;
+	start = info->fix.smem_start;
+	len = PAGE_ALIGN((start & ~PAGE_MASK) + info->fix.smem_len);
+
+	if ((vma->vm_end - vma->vm_start + off) > len)
+		return -EINVAL;
+
+	off += start;
+	vma->vm_pgoff = off >> PAGE_SHIFT;
+
+	/* Accessing memory will be done non-cached. */
+	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+
+	/* To stop the swapper from even considering these pages */
+	vma->vm_flags |= (VM_IO | VM_RESERVED);
+
+	if (remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
+			    vma->vm_end - vma->vm_start, vma->vm_page_prot))
+		return -EAGAIN;
+
+	return 0;
+}
+static int sh_mobile_fb_check_var(struct fb_var_screeninfo *var,
+				  struct fb_info *info)
+{
+	switch (var->bits_per_pixel) {
+	case 16: /* RGB 565 */
+		var->red.offset    = 11;
+		var->red.length    = 5;
+		var->green.offset  = 5;
+		var->green.length  = 6;
+		var->blue.offset   = 0;
+		var->blue.length   = 5;
+		var->transp.offset = 0;
+		var->transp.length = 0;
+		break;
+	case 32: /* ARGB 8888*/
+		var->red.offset    = 16;
+		var->red.length    = 8;
+		var->green.offset  = 8;
+		var->green.length  = 8;
+		var->blue.offset   = 0;
+		var->blue.length   = 8;
+		var->transp.offset = 24;
+		var->transp.length = 8;
+		break;
+	default:
+		return -EINVAL;
+
+	}
+	return 0;
+
+}
 
 static struct fb_ops sh_mobile_lcdc_ops = {
 	.owner          = THIS_MODULE,
 	.fb_setcolreg	= sh_mobile_lcdc_setcolreg,
+	.fb_check_var	= sh_mobile_fb_check_var,
 	.fb_read        = fb_sys_read,
 	.fb_write       = fb_sys_write,
-	.fb_fillrect	= sh_mobile_lcdc_fillrect,
-	.fb_copyarea	= sh_mobile_lcdc_copyarea,
-	.fb_imageblit	= sh_mobile_lcdc_imageblit,
+	.fb_fillrect	= sys_fillrect,
+	.fb_copyarea	= sys_copyarea,
+	.fb_imageblit	= sys_imageblit,
 	.fb_pan_display = sh_mobile_fb_pan_display,
 	.fb_ioctl       = sh_mobile_ioctl,
+	.fb_mmap	= sh_mobile_mmap,
 };
 
 static int sh_mobile_lcdc_set_bpp(struct fb_var_screeninfo *var, int bpp)
 {
 	switch (bpp) {
-	case 16: /* PKF[4:0] = 00011 - RGB 565 */
+	case 16: /* RGB 565 */
 		var->red.offset = 11;
 		var->red.length = 5;
 		var->green.offset = 5;
@@ -848,18 +834,15 @@ static int sh_mobile_lcdc_set_bpp(struct fb_var_screeninfo *var, int bpp)
 		var->transp.length = 0;
 		break;
 
-	case 32: /* PKF[4:0] = 00000 - RGB 888
-		  * sh7722 pdf says 00RRGGBB but reality is GGBB00RR
-		  * this may be because LDDDSR has word swap enabled..
-		  */
-		var->red.offset = 0;
+	case 32: /* ARGB 8888 */
+		var->red.offset = 16;
 		var->red.length = 8;
-		var->green.offset = 24;
+		var->green.offset = 8;
 		var->green.length = 8;
-		var->blue.offset = 16;
+		var->blue.offset = 0;
 		var->blue.length = 8;
-		var->transp.offset = 0;
-		var->transp.length = 0;
+		var->transp.offset = 24;
+		var->transp.length = 8;
 		break;
 	default:
 		return -EINVAL;
@@ -872,6 +855,7 @@ static int sh_mobile_lcdc_set_bpp(struct fb_var_screeninfo *var, int bpp)
 	return 0;
 }
 
+#if 0 /* this function is implemented in future. */
 static int sh_mobile_lcdc_suspend(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -941,8 +925,34 @@ static const struct dev_pm_ops sh_mobile_lcdc_dev_pm_ops = {
 	.runtime_suspend = sh_mobile_lcdc_runtime_suspend,
 	.runtime_resume = sh_mobile_lcdc_runtime_resume,
 };
+#endif
 
 static int sh_mobile_lcdc_remove(struct platform_device *pdev);
+
+static unsigned long RoundUpToMultiple(unsigned long x, unsigned long y)
+{
+	unsigned long div = x / y;
+	unsigned long rem = x % y;
+
+	return (div + ((rem == 0) ? 0 : 1)) * y;
+}
+
+static unsigned long GCD(unsigned long x, unsigned long y)
+{
+	while (y != 0) {
+		unsigned long r = x % y;
+		x = y;
+		y = r;
+	}
+	return x;
+}
+
+static unsigned long LCM(unsigned long x, unsigned long y)
+{
+	unsigned long gcd = GCD(x, y);
+
+	return (gcd == 0) ? 0 : ((x / gcd) * y);
+}
 
 static int __devinit sh_mobile_lcdc_probe(struct platform_device *pdev)
 {
@@ -951,64 +961,66 @@ static int __devinit sh_mobile_lcdc_probe(struct platform_device *pdev)
 	struct sh_mobile_lcdc_info *pdata;
 	struct sh_mobile_lcdc_chan_cfg *cfg;
 	struct resource *res;
-	int error;
-	void *buf;
+	int error = 0;
 	int i, j;
+	unsigned long ulLCM;
+	void *temp = NULL;
+
+#ifndef CONFIG_FB_SH_MOBILE_DOUBLE_BUF
+	void *buf = NULL;
+#endif
+
+	printk(KERN_ALERT "sh_mobile_lcdc_probe\n");
 
 	if (!pdev->dev.platform_data) {
 		dev_err(&pdev->dev, "no platform data defined\n");
-		return -EINVAL;
+		error = -EINVAL;
+		goto err0;
 	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	i = platform_get_irq(pdev, 0);
-	if (!res || i < 0) {
-		dev_err(&pdev->dev, "cannot get platform resources\n");
-		return -ENOENT;
-	}
 
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv) {
 		dev_err(&pdev->dev, "cannot allocate device data\n");
-		return -ENOMEM;
+		error = -ENOMEM;
+		goto err0;
 	}
 
+	priv->dev = &pdev->dev;
 	platform_set_drvdata(pdev, priv);
-
-	error = request_irq(i, sh_mobile_lcdc_irq, IRQF_DISABLED,
-			    dev_name(&pdev->dev), priv);
-	if (error) {
-		dev_err(&pdev->dev, "unable to request irq\n");
-		goto err1;
-	}
-
-	priv->irq = i;
 	pdata = pdev->dev.platform_data;
-	atomic_set(&priv->hw_usecnt, -1);
 
 	j = 0;
 	for (i = 0; i < ARRAY_SIZE(pdata->ch); i++) {
 		priv->ch[j].lcdc = priv;
 		memcpy(&priv->ch[j].cfg, &pdata->ch[i], sizeof(pdata->ch[i]));
 
-		error = sh_mobile_lcdc_check_interface(&priv->ch[j]);
-		if (error) {
-			dev_err(&pdev->dev, "unsupported interface type\n");
-			goto err1;
-		}
-		init_waitqueue_head(&priv->ch[j].frame_end_wait);
-		init_completion(&priv->ch[j].vsync_completion);
 		priv->ch[j].pan_offset = 0;
-
 		switch (pdata->ch[i].chan) {
 		case LCDC_CHAN_MAINLCD:
-			priv->ch[j].enabled = 1 << 1;
-			priv->ch[j].reg_offs = lcdc_offs_mainlcd;
+			lcd_ext_param[i].o_mode = RT_DISPLAY_LCD1;
+			lcd_ext_param[i].rect_x = SH_MLCD_RECTX;
+			lcd_ext_param[i].rect_y = SH_MLCD_RECTY;
+			lcd_ext_param[i].rect_width = SH_MLCD_WIDTH;
+			lcd_ext_param[i].rect_height = SH_MLCD_HEIGHT;
+			lcd_ext_param[i].alpha = 0xFF;
+			lcd_ext_param[i].key_clr = SH_MLCD_TRCOLOR;
+			lcd_ext_param[i].v4l2_state = RT_DISPLAY_REFRESH_ON;
+			lcd_ext_param[i].phy_addr = SCREEN_DISPLAY_BUFF_ADDR;
 			j++;
 			break;
 		case LCDC_CHAN_SUBLCD:
-			priv->ch[j].enabled = 1 << 2;
-			priv->ch[j].reg_offs = lcdc_offs_sublcd;
+			lcd_ext_param[i].o_mode = RT_DISPLAY_LCD2;
+			lcd_ext_param[i].rect_x = SH_SLCD_RECTX;
+			lcd_ext_param[i].rect_y = SH_SLCD_RECTY;
+			lcd_ext_param[i].rect_width = SH_SLCD_WIDTH;
+			lcd_ext_param[i].rect_height = SH_SLCD_HEIGHT;
+			lcd_ext_param[i].alpha = 0xFF;
+			lcd_ext_param[i].key_clr = SH_SLCD_TRCOLOR;
+			lcd_ext_param[i].v4l2_state = RT_DISPLAY_REFRESH_ON;
+			/* SUBLCD undefined */
+			lcd_ext_param[i].phy_addr = 0;
 			j++;
 			break;
 		}
@@ -1017,16 +1029,6 @@ static int __devinit sh_mobile_lcdc_probe(struct platform_device *pdev)
 	if (!j) {
 		dev_err(&pdev->dev, "no channels defined\n");
 		error = -EINVAL;
-		goto err1;
-	}
-
-	priv->base = ioremap_nocache(res->start, resource_size(res));
-	if (!priv->base)
-		goto err1;
-
-	error = sh_mobile_lcdc_setup_clocks(pdev, pdata->clock_source, priv);
-	if (error) {
-		dev_err(&pdev->dev, "unable to setup clocks\n");
 		goto err1;
 	}
 
@@ -1045,19 +1047,35 @@ static int __devinit sh_mobile_lcdc_probe(struct platform_device *pdev)
 		info->var.xres = info->var.xres_virtual = cfg->lcd_cfg.xres;
 		info->var.yres = cfg->lcd_cfg.yres;
 		/* Default Y virtual resolution is 2x panel size */
-		info->var.yres_virtual = info->var.yres * 2;
 		info->var.width = cfg->lcd_size_cfg.width;
 		info->var.height = cfg->lcd_size_cfg.height;
 		info->var.activate = FB_ACTIVATE_NOW;
 		error = sh_mobile_lcdc_set_bpp(&info->var, cfg->bpp);
 		if (error)
 			break;
-
 		info->fix = sh_mobile_lcdc_fix;
 		info->fix.line_length = cfg->lcd_cfg.xres * (cfg->bpp / 8);
-		info->fix.smem_len = info->fix.line_length *
-			info->var.yres_virtual;
 
+		/* 4kbyte align */
+		ulLCM = LCM(info->fix.line_length, 0x1000);
+		info->fix.smem_len = RoundUpToMultiple(
+			info->fix.line_length*info->var.yres, ulLCM);
+		info->fix.smem_len *= 2;
+
+		info->var.yres_virtual = info->fix.smem_len
+			/ info->fix.line_length;
+
+#ifdef CONFIG_FB_SH_MOBILE_DOUBLE_BUF
+/* onscreen buffer 2 */
+		temp = ioremap(lcd_ext_param[i].phy_addr,
+			       info->fix.smem_len);
+		if (NULL == temp) {
+			error = -ENOMEM;
+			break;
+		} else {
+			lcd_ext_param[i].vir_addr = (unsigned int)temp;
+		}
+#else
 		buf = dma_alloc_coherent(&pdev->dev, info->fix.smem_len,
 					 &priv->ch[i].dma_handle, GFP_KERNEL);
 		if (!buf) {
@@ -1065,21 +1083,34 @@ static int __devinit sh_mobile_lcdc_probe(struct platform_device *pdev)
 			error = -ENOMEM;
 			break;
 		}
-
+		temp = ioremap(lcd_ext_param[i].phy_addr,
+			       info->fix.smem_len);
+		if (NULL == temp) {
+			error = -ENOMEM;
+			break;
+		} else {
+			lcd_ext_param[i].vir_addr = (unsigned int)temp;
+		}
+#endif
 		info->pseudo_palette = &priv->ch[i].pseudo_palette;
 		info->flags = FBINFO_FLAG_DEFAULT;
 
 		error = fb_alloc_cmap(&info->cmap, PALETTE_NR, 0);
 		if (error < 0) {
 			dev_err(&pdev->dev, "unable to allocate cmap\n");
-			dma_free_coherent(&pdev->dev, info->fix.smem_len,
-					  buf, priv->ch[i].dma_handle);
 			break;
 		}
+		fb_set_cmap(&info->cmap, info);
 
+#ifdef CONFIG_FB_SH_MOBILE_DOUBLE_BUF
+/* onscreen buffer 2 */
+		info->fix.smem_start = lcd_ext_param[i].phy_addr;
+		info->screen_base = (char __iomem *)lcd_ext_param[i].vir_addr;
+#else
 		memset(buf, 0, info->fix.smem_len);
 		info->fix.smem_start = priv->ch[i].dma_handle;
 		info->screen_base = buf;
+#endif
 		info->device = &pdev->dev;
 		info->par = &priv->ch[i];
 	}
@@ -1087,25 +1118,10 @@ static int __devinit sh_mobile_lcdc_probe(struct platform_device *pdev)
 	if (error)
 		goto err1;
 
-	error = sh_mobile_lcdc_start(priv);
-	if (error) {
-		dev_err(&pdev->dev, "unable to start hardware\n");
-		goto err1;
-	}
-
 	for (i = 0; i < j; i++) {
 		struct sh_mobile_lcdc_chan *ch = priv->ch + i;
 
 		info = ch->info;
-
-		if (info->fbdefio) {
-			ch->sglist = vmalloc(sizeof(struct scatterlist) *
-					info->fix.smem_len >> PAGE_SHIFT);
-			if (!ch->sglist) {
-				dev_err(&pdev->dev, "cannot allocate sglist\n");
-				goto err1;
-			}
-		}
 
 		error = register_framebuffer(info);
 		if (error < 0)
@@ -1120,15 +1136,15 @@ static int __devinit sh_mobile_lcdc_probe(struct platform_device *pdev)
 			 (int) ch->cfg.lcd_cfg.yres,
 			 ch->cfg.bpp);
 
-		/* deferred io mode: disable clock to save power */
-		if (info->fbdefio)
-			sh_mobile_lcdc_clk_off(priv);
+		lcd_ext_param[i].aInfo = NULL;
+		lcd_ext_param[i].lcd_type = ch->cfg.chan;
+		sema_init(&lcd_ext_param[i].sem_lcd, 1);
 	}
 
 	return 0;
 err1:
 	sh_mobile_lcdc_remove(pdev);
-
+err0:
 	return error;
 }
 
@@ -1139,10 +1155,8 @@ static int sh_mobile_lcdc_remove(struct platform_device *pdev)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(priv->ch); i++)
-		if (priv->ch[i].info && priv->ch[i].info->dev)
+		if (priv->ch[i].info->dev)
 			unregister_framebuffer(priv->ch[i].info);
-
-	sh_mobile_lcdc_stop(priv);
 
 	for (i = 0; i < ARRAY_SIZE(priv->ch); i++) {
 		info = priv->ch[i].info;
@@ -1150,26 +1164,23 @@ static int sh_mobile_lcdc_remove(struct platform_device *pdev)
 		if (!info || !info->device)
 			continue;
 
-		if (priv->ch[i].sglist)
-			vfree(priv->ch[i].sglist);
+#ifdef CONFIG_FB_SH_MOBILE_DOUBLE_BUF
+		if (lcd_ext_param[i].vir_addr != 0)
+			iounmap((void __iomem *)lcd_ext_param[i].vir_addr);
+#else
+		if (info->screen_base != NULL)
+			dma_free_coherent(&pdev->dev, info->fix.smem_len,
+					  info->screen_base,
+					  priv->ch[i].dma_handle);
 
-		dma_free_coherent(&pdev->dev, info->fix.smem_len,
-				  info->screen_base, priv->ch[i].dma_handle);
+		if (lcd_ext_param[i].vir_addr != 0)
+			iounmap((void __iomem *)lcd_ext_param[i].vir_addr);
+
+#endif
 		fb_dealloc_cmap(&info->cmap);
 		framebuffer_release(info);
 	}
 
-	if (priv->dot_clk)
-		clk_put(priv->dot_clk);
-
-	if (priv->dev)
-		pm_runtime_disable(priv->dev);
-
-	if (priv->base)
-		iounmap(priv->base);
-
-	if (priv->irq)
-		free_irq(priv->irq, priv);
 	kfree(priv);
 	return 0;
 }
@@ -1178,7 +1189,9 @@ static struct platform_driver sh_mobile_lcdc_driver = {
 	.driver		= {
 		.name		= "sh_mobile_lcdc_fb",
 		.owner		= THIS_MODULE,
+#if 0
 		.pm		= &sh_mobile_lcdc_dev_pm_ops,
+#endif
 	},
 	.probe		= sh_mobile_lcdc_probe,
 	.remove		= sh_mobile_lcdc_remove,
