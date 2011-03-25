@@ -198,6 +198,12 @@ enum v4l2_colorspace {
 
 	/* For RGB colourspaces, this is probably a good start. */
 	V4L2_COLORSPACE_SRGB          = 8,
+#ifdef CONFIG_VIDEO_APE5R_V4L2
+	V4L2_COLORSPACE_BT709_COMPRESS  = 0x100,
+	V4L2_COLORSPACE_BT709_FULLSCALE = 0x101,
+	V4L2_COLORSPACE_BT601_COMPRESS  = 0x102,
+	V4L2_COLORSPACE_BT601_FULLSCALE = 0x103,
+#endif /* CONFIG_VIDEO_APE5R_V4L2 */
 };
 
 enum v4l2_priority {
@@ -253,6 +259,14 @@ struct v4l2_capability {
 #define V4L2_CAP_READWRITE              0x01000000  /* read/write systemcalls */
 #define V4L2_CAP_ASYNCIO                0x02000000  /* async I/O */
 #define V4L2_CAP_STREAMING              0x04000000  /* streaming I/O ioctls */
+
+#ifdef CONFIG_VIDEO_APE5R_V4L2
+struct v4l2_workbuffer /* V4L2_BUF_TYPE_PRIVATE */
+{
+	unsigned int apmem_id;
+	unsigned int apmem_addr;
+};
+#endif /* CONFIG_VIDEO_APE5R_V4L2 */
 
 /*
  *	V I D E O   I M A G E   F O R M A T
@@ -1326,6 +1340,27 @@ enum v4l2_preemphasis {
 };
 #define V4L2_CID_TUNE_POWER_LEVEL		(V4L2_CID_FM_TX_CLASS_BASE + 113)
 #define V4L2_CID_TUNE_ANTENNA_CAPACITOR		(V4L2_CID_FM_TX_CLASS_BASE + 114)
+
+#ifdef CONFIG_VIDEO_APE5R_V4L2
+
+/* private ID for overlay */
+#define V4L2_CID_DISPLAY_OUTPUT			(V4L2_CID_PRIVATE_BASE+1)
+enum v4l2_display_output_parameters {
+	V4L2_OUTPUT_LCD1          = 0,
+	V4L2_OUTPUT_LCD2          = 1,
+	V4L2_OUTPUT_HDMI_1080I    = 2,
+	V4L2_OUTPUT_HDMI_720P     = 3,
+	V4L2_OUTPUT_HDMI_480P     = 4,
+	V4L2_OUTPUT_HDMI_1080P    = 5
+};
+#define V4L2_CID_DISPLAY_MIRROR			(V4L2_CID_PRIVATE_BASE+2)
+enum v4l2_display_mirror_parameters {
+	V4L2_MIRROR_NONE          = 0,
+	V4L2_MIRROR_HFLIP         = 1,
+	V4L2_MIRROR_VFLIP         = 2
+};
+
+#endif /* CONFIG_VIDEO_APE5R_V4L2 */
 
 /*
  *	T U N I N G

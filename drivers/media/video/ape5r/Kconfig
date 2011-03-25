@@ -1,0 +1,13 @@
+#
+# APE5R config for  video for linux2
+#
+#    support OVERLAY
+#
+
+config VIDEO_APE5R_V4L2
+	bool "APE5R video overlay support"
+	default y
+	depends on VIDEO_DEV && MACH_AG5EVM
+	select VIDEOBUF_GEN
+
+
