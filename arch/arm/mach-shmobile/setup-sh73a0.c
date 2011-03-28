@@ -35,12 +35,19 @@
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 
+static struct platform_device dma_device;
+
 static struct plat_sci_port scif0_platform_data = {
 	.mapbase	= 0xe6c40000,
 	.flags		= UPF_BOOT_AUTOCONF,
 	.type		= PORT_SCIFA,
 	.irqs		= { gic_spi(72), gic_spi(72),
 			    gic_spi(72), gic_spi(72) },
+#ifdef CONFIG_SERIAL_SH_SCI_DMA
+	.dma_dev	= &dma_device.dev,
+	.dma_slave_tx	= SHDMA_SLAVE_SCIF0_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SCIF0_RX,
+#endif
 };
 
 static struct platform_device scif0_device = {
@@ -48,6 +55,8 @@ static struct platform_device scif0_device = {
 	.id		= 0,
 	.dev		= {
 		.platform_data	= &scif0_platform_data,
+		.dma_mask	= NULL,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -57,6 +66,11 @@ static struct plat_sci_port scif1_platform_data = {
 	.type		= PORT_SCIFA,
 	.irqs		= { gic_spi(73), gic_spi(73),
 			    gic_spi(73), gic_spi(73) },
+#ifdef CONFIG_SERIAL_SH_SCI_DMA
+	.dma_dev	= &dma_device.dev,
+	.dma_slave_tx	= SHDMA_SLAVE_SCIF1_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SCIF1_RX,
+#endif
 };
 
 static struct platform_device scif1_device = {
@@ -64,6 +78,8 @@ static struct platform_device scif1_device = {
 	.id		= 1,
 	.dev		= {
 		.platform_data	= &scif1_platform_data,
+		.dma_mask	= NULL,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -73,6 +89,11 @@ static struct plat_sci_port scif2_platform_data = {
 	.type		= PORT_SCIFA,
 	.irqs		= { gic_spi(74), gic_spi(74),
 			    gic_spi(74), gic_spi(74) },
+#ifdef CONFIG_SERIAL_SH_SCI_DMA
+	.dma_dev	= &dma_device.dev,
+	.dma_slave_tx	= SHDMA_SLAVE_SCIF2_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SCIF2_RX,
+#endif
 };
 
 static struct platform_device scif2_device = {
@@ -80,6 +101,8 @@ static struct platform_device scif2_device = {
 	.id		= 2,
 	.dev		= {
 		.platform_data	= &scif2_platform_data,
+		.dma_mask	= NULL,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -89,6 +112,11 @@ static struct plat_sci_port scif3_platform_data = {
 	.type		= PORT_SCIFA,
 	.irqs		= { gic_spi(75), gic_spi(75),
 			    gic_spi(75), gic_spi(75) },
+#ifdef CONFIG_SERIAL_SH_SCI_DMA
+	.dma_dev	= &dma_device.dev,
+	.dma_slave_tx	= SHDMA_SLAVE_SCIF3_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SCIF3_RX,
+#endif
 };
 
 static struct platform_device scif3_device = {
@@ -96,6 +124,8 @@ static struct platform_device scif3_device = {
 	.id		= 3,
 	.dev		= {
 		.platform_data	= &scif3_platform_data,
+		.dma_mask	= NULL,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -105,6 +135,11 @@ static struct plat_sci_port scif4_platform_data = {
 	.type		= PORT_SCIFA,
 	.irqs		= { gic_spi(78), gic_spi(78),
 			    gic_spi(78), gic_spi(78) },
+#ifdef CONFIG_SERIAL_SH_SCI_DMA
+	.dma_dev	= &dma_device.dev,
+	.dma_slave_tx	= SHDMA_SLAVE_SCIF4_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SCIF4_RX,
+#endif
 };
 
 static struct platform_device scif4_device = {
@@ -112,6 +147,8 @@ static struct platform_device scif4_device = {
 	.id		= 4,
 	.dev		= {
 		.platform_data	= &scif4_platform_data,
+		.dma_mask	= NULL,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -121,6 +158,11 @@ static struct plat_sci_port scif5_platform_data = {
 	.type		= PORT_SCIFA,
 	.irqs		= { gic_spi(79), gic_spi(79),
 			    gic_spi(79), gic_spi(79) },
+#ifdef CONFIG_SERIAL_SH_SCI_DMA
+	.dma_dev	= &dma_device.dev,
+	.dma_slave_tx	= SHDMA_SLAVE_SCIF5_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SCIF5_RX,
+#endif
 };
 
 static struct platform_device scif5_device = {
@@ -128,6 +170,8 @@ static struct platform_device scif5_device = {
 	.id		= 5,
 	.dev		= {
 		.platform_data	= &scif5_platform_data,
+		.dma_mask	= NULL,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -137,6 +181,11 @@ static struct plat_sci_port scif6_platform_data = {
 	.type		= PORT_SCIFA,
 	.irqs		= { gic_spi(156), gic_spi(156),
 			    gic_spi(156), gic_spi(156) },
+#ifdef CONFIG_SERIAL_SH_SCI_DMA
+	.dma_dev	= &dma_device.dev,
+	.dma_slave_tx	= SHDMA_SLAVE_SCIF6_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SCIF6_RX,
+#endif
 };
 
 static struct platform_device scif6_device = {
@@ -144,6 +193,8 @@ static struct platform_device scif6_device = {
 	.id		= 6,
 	.dev		= {
 		.platform_data	= &scif6_platform_data,
+		.dma_mask	= NULL,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -153,6 +204,11 @@ static struct plat_sci_port scif7_platform_data = {
 	.type		= PORT_SCIFA,
 	.irqs		= { gic_spi(143), gic_spi(143),
 			    gic_spi(143), gic_spi(143) },
+#ifdef CONFIG_SERIAL_SH_SCI_DMA
+	.dma_dev	= &dma_device.dev,
+	.dma_slave_tx	= SHDMA_SLAVE_SCIF7_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SCIF7_RX,
+#endif
 };
 
 static struct platform_device scif7_device = {
@@ -160,6 +216,8 @@ static struct platform_device scif7_device = {
 	.id		= 7,
 	.dev		= {
 		.platform_data	= &scif7_platform_data,
+		.dma_mask	= NULL,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -169,6 +227,11 @@ static struct plat_sci_port scif8_platform_data = {
 	.type		= PORT_SCIFB,
 	.irqs		= { gic_spi(80), gic_spi(80),
 			    gic_spi(80), gic_spi(80) },
+#ifdef CONFIG_SERIAL_SH_SCI_DMA
+	.dma_dev	= &dma_device.dev,
+	.dma_slave_tx	= SHDMA_SLAVE_SCIF8_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_SCIF8_RX,
+#endif
 };
 
 static struct platform_device scif8_device = {
@@ -176,6 +239,8 @@ static struct platform_device scif8_device = {
 	.id		= 8,
 	.dev		= {
 		.platform_data	= &scif8_platform_data,
+		.dma_mask	= NULL,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
