@@ -86,62 +86,6 @@ struct sh_mobile_lcdc_info {
 	struct sh_mobile_lcdc_chan_cfg ch[2];
 };
 
-#include <rtapi/screen_display.h>
-struct rtdisp_func {
-	void* (*rtdisp_new)
-	(
-		void
-	);
-
-	int (*rtdisp_set_parameters)
-	(
-		screen_disp_param *disp_param
-	);
-
-	/* Get the initial address of on-screen */
-	int (*rtdisp_get_address)
-	(
-		screen_disp_get_address *address
-	);
-
-	/* On-screen display update instruction */
-	int (*rtdisp_draw)
-	(
-		screen_disp_draw *disp_draw
-	);
-
-	int (*rtdisp_start_lcd)
-	(
-		screen_disp_start_lcd *start_lcd
-	);
-
-	int (*rtdisp_stop_lcd)
-	(
-		screen_disp_stop_lcd *stop_lcd
-	);
-
-	int (*rtdisp_set_lcd_refresh)
-	(
-		screen_disp_set_lcd_refresh *set_lcd_refresh
-	);
-
-	int (*rtdisp_write_dsi_short_packet)
-	(
-		screen_disp_write_dsi_short *write_dsi_s
-	);
-
-	int (*rtdisp_write_dsi_long_packet)
-	(
-		screen_disp_write_dsi_long *write_dsi_l
-	);
-
-	int (*rtdisp_set_lcd_if_parameters)
-	(
-		screen_disp_set_lcd_if_param *set_lcd_if_param
-	);
-};
-
-extern void register_disp_func(struct rtdisp_func *pfunc);
 extern int sh_mobile_lcdc_keyclr_set(unsigned short s_key_clr,
 				     unsigned short output_mode);
 extern int sh_mobile_lcdc_alpha_set(unsigned short s_alpha,
