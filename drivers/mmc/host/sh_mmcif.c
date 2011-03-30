@@ -532,16 +532,20 @@ static irqreturn_t sh_mmcif_intr(int irq, void *dev_id)
 		sh_mmcif_cmd_irq(host);
 	}
 
-	if (state & (INT_CMD12DRE | INT_CMD12RBE)) {
-		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
-			~(INT_CMD12DRE | INT_CMD12RBE |
-			  INT_CMD12CRE | INT_BUFRE));
-	}
-
 	if (state & (INT_BUFREN | INT_BUFWEN)) {
 		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
 				~(INT_BUFREN | INT_BUFWEN));
 		sh_mmcif_pio_irq(host);
+	}
+
+	if (state & (INT_CMD12DRE | INT_CMD12RBE)) {
+		sh_mmcif_writel(host->addr, MMCIF_CE_INT,
+			~(INT_CMD12DRE | INT_CMD12RBE |
+			  INT_CMD12CRE | INT_BUFRE));
+		state &= ~INT_BUFRE;
+		host->mrq->cmd->resp[0] =
+			sh_mmcif_readl(host->addr, MMCIF_CE_RESP_CMD12);
+		sh_mmcif_data_irq(host);
 	}
 
 	if (state & (INT_BUFRE | INT_DTRANE)) {
@@ -580,7 +584,16 @@ static void sh_mmcif_start_cmd(struct sh_mmcif_host *host,
 		MASK_MCCSTO | MASK_MCRCSTO | MASK_MWDATTO |
 		MASK_MRDATTO | MASK_MRBSYTO | MASK_MRSPTO;
 
-	mask |= MASK_MBUFREN | MASK_MBUFWEN | MASK_MBUFRE | MASK_MDTRANE;
+	mask |= MASK_MBUFREN | MASK_MBUFWEN;
+	if (mrq->stop) {
+		if (opc == MMC_READ_MULTIPLE_BLOCK)
+			mask |= MASK_MCMD12DRE;
+		else if (opc == MMC_WRITE_MULTIPLE_BLOCK)
+			mask |= MASK_MCMD12RBE;
+		else
+			mask |= MASK_MBUFRE | MASK_MDTRANE;
+	} else
+		mask |= MASK_MBUFRE | MASK_MDTRANE;
 
 	opc = sh_mmcif_set_cmd(host, mrq, cmd, opc);
 
