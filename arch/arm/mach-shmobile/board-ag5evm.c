@@ -795,6 +795,15 @@ void __init ag5evm_init_irq(void)
 		pr_warning("Failed to get sdhi1_2 irq\n");
 }
 
+#define SBAR2		0xe6180060
+#define RESCNT2		0xe6188020
+
+void ag5evm_arch_reset(char mode, const char *cmd)
+{
+	__raw_writel(0, SBAR2);
+	__raw_writel(__raw_readl(RESCNT2) | (1 << 31), RESCNT2);
+}
+
 #define FLCKCR		0xe6150014
 #define SUBCKCR		0xe6150080
 #define SRCR2		0xe61580b0
@@ -808,6 +817,8 @@ static void __init ag5evm_init(void)
 
 	__raw_writel(__raw_readl(SUBCKCR) & ~(1<<9), SUBCKCR);
 	__raw_writel(__raw_readl(SUBCKCR) | (1<<7), SUBCKCR);
+
+	shmobile_arch_reset = ag5evm_arch_reset;
 
 	sh73a0_pinmux_init();
 
