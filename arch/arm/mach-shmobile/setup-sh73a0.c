@@ -583,20 +583,6 @@ static struct resource i2c3_resources[] = {
 	},
 };
 
-static struct resource i2c4_resources[] = {
-	[0] = {
-		.name	= "IIC4",
-		.start	= 0xe6828000,
-		.end	= 0xe6828425 - 1,
-		.flags	= IORESOURCE_MEM,
-	},
-	[1] = {
-		.start	= gic_spi(187),
-		.end	= gic_spi(190),
-		.flags	= IORESOURCE_IRQ,
-	},
-};
-
 static struct platform_device i2c0_device = {
 	.name		= "i2c-sh_mobile",
 	.id		= 0,
@@ -625,13 +611,6 @@ static struct platform_device i2c3_device = {
 	.num_resources	= ARRAY_SIZE(i2c3_resources),
 };
 
-static struct platform_device i2c4_device = {
-	.name		= "i2c-sh_mobile",
-	.id		= 4,
-	.resource	= i2c4_resources,
-	.num_resources	= ARRAY_SIZE(i2c4_resources),
-};
-
 static struct platform_device *sh73a0_early_devices[] __initdata = {
 	&scif0_device,
 	&scif1_device,
@@ -651,7 +630,6 @@ static struct platform_device *sh73a0_late_devices[] __initdata = {
 	&i2c1_device,
 	&i2c2_device,
 	&i2c3_device,
-	&i2c4_device,
 };
 
 void __init sh73a0_add_standard_devices(void)

@@ -704,7 +704,6 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("i2c1", &mstp_clks[MSTP323]),
 	CLKDEV_CON_ID("i2c2", &mstp_clks[MSTP001]),
 	CLKDEV_CON_ID("i2c3", &mstp_clks[MSTP411]),
-	CLKDEV_CON_ID("i2c4", &mstp_clks[MSTP410]),
 	CLKDEV_CON_ID("keysc0", &mstp_clks[MSTP403]),
 	CLKDEV_CON_ID("mmcif0", &mstp_clks[MSTP312]),
 
@@ -732,7 +731,6 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_DEV_ID("i2c-sh_mobile.1", &mstp_clks[MSTP323]), /* I2C1 */
 	CLKDEV_DEV_ID("i2c-sh_mobile.2", &mstp_clks[MSTP001]), /* I2C2 */
 	CLKDEV_DEV_ID("i2c-sh_mobile.3", &mstp_clks[MSTP411]), /* I2C3 */
-	CLKDEV_DEV_ID("i2c-sh_mobile.4", &mstp_clks[MSTP410]), /* I2C4 */
 };
 
 void __init sh73a0_clock_init(void)
