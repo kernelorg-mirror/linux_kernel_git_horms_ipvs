@@ -247,6 +247,7 @@ static inline void sh_mmcif_bitclr(struct sh_mmcif_host *host,
 static void sh_mmcif_clock_control(struct sh_mmcif_host *host, unsigned int clk)
 {
 	struct sh_mmcif_plat_data *p = host->pd->dev.platform_data;
+	u32 clkdiv;
 
 	sh_mmcif_bitclr(host, MMCIF_CE_CLK_CTRL, CLK_ENABLE);
 	sh_mmcif_bitclr(host, MMCIF_CE_CLK_CTRL, CLK_CLEAR);
@@ -255,9 +256,13 @@ static void sh_mmcif_clock_control(struct sh_mmcif_host *host, unsigned int clk)
 		return;
 	if (p->sup_pclk && clk == host->clk)
 		sh_mmcif_bitset(host, MMCIF_CE_CLK_CTRL, CLK_SUP_PCLK);
-	else
-		sh_mmcif_bitset(host, MMCIF_CE_CLK_CTRL, CLK_CLEAR &
-			(ilog2(__rounddown_pow_of_two(host->clk / clk)) << 16));
+	else {
+		clkdiv = ilog2(__rounddown_pow_of_two(host->clk / clk));
+		if (clkdiv == 0)
+			clkdiv = 1; /* just in case */
+		sh_mmcif_bitset(host, MMCIF_CE_CLK_CTRL,
+			CLK_CLEAR & ((clkdiv - 1) << 16));
+	}
 
 	sh_mmcif_bitset(host, MMCIF_CE_CLK_CTRL, CLK_ENABLE);
 }
