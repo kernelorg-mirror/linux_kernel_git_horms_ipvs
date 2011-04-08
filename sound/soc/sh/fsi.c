@@ -1255,12 +1255,11 @@ static int fsi_remove(struct platform_device *pdev)
 
 	master = fsi_get_master(fsi_soc_dai[0].private_data);
 
-	snd_soc_unregister_dais(fsi_soc_dai, ARRAY_SIZE(fsi_soc_dai));
-	snd_soc_unregister_platform(&fsi_soc_platform);
-
+	free_irq(master->irq, master);
 	pm_runtime_disable(&pdev->dev);
 
-	free_irq(master->irq, master);
+	snd_soc_unregister_dais(fsi_soc_dai, ARRAY_SIZE(fsi_soc_dai));
+	snd_soc_unregister_platform(&fsi_soc_platform);
 
 	iounmap(master->base);
 	kfree(master);
