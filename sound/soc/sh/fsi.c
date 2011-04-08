@@ -1203,14 +1203,15 @@ static int fsi_probe(struct platform_device *pdev)
 	master->fsib.master	= master;
 
 	pm_runtime_enable(&pdev->dev);
-	pm_runtime_resume(&pdev->dev);
 
 	fsi_soc_dai[0].dev		= &pdev->dev;
 	fsi_soc_dai[0].private_data	= &master->fsia;
 	fsi_soc_dai[1].dev		= &pdev->dev;
 	fsi_soc_dai[1].private_data	= &master->fsib;
 
+	pm_runtime_get_sync(&pdev->dev);
 	fsi_soft_all_reset(master);
+	pm_runtime_put_sync(&pdev->dev);
 
 	ret = request_irq(irq, &fsi_interrupt, IRQF_DISABLED,
 			  id_entry->name, master);
