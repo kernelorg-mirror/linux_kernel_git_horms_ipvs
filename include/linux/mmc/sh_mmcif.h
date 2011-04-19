@@ -37,8 +37,6 @@ struct sh_mmcif_plat_data {
 	u8	sup_pclk;	/* 1 :SH7757, 0: SH7724/SH7372 */
 	unsigned long caps;
 	u32	ocr;
-	u32	dma_slave_tx;
-	u32	dma_slave_rx;
 };
 
 #define MMCIF_CE_CMD_SET	0x00000000
