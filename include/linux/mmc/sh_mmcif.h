@@ -16,7 +16,6 @@
 
 #include <linux/platform_device.h>
 #include <linux/io.h>
-#include <linux/sh_dma.h>
 
 /*
  * MMCIF : CE_CLK_CTRL [19:16]
@@ -32,18 +31,14 @@
  * 1111 : Peripheral clock (sup_pclk set '1')
  */
 
-struct sh_mmcif_dma {
-	struct sh_dmae_slave chan_priv_tx;
-	struct sh_dmae_slave chan_priv_rx;
-};
-
 struct sh_mmcif_plat_data {
 	void (*set_pwr)(struct platform_device *pdev, int state);
 	void (*down_pwr)(struct platform_device *pdev);
-	struct sh_mmcif_dma	*dma;
-	u8			sup_pclk; /* 1 :SH7757, 0: SH7724/SH7372 */
-	unsigned long		caps;
-	u32			ocr;
+	u8	sup_pclk;	/* 1 :SH7757, 0: SH7724/SH7372 */
+	unsigned long caps;
+	u32	ocr;
+	u32	dma_slave_tx;
+	u32	dma_slave_rx;
 };
 
 #define MMCIF_CE_CMD_SET	0x00000000

@@ -443,20 +443,13 @@ static struct resource sh_mmcif_resources[] = {
 	},
 };
 
-static struct sh_mmcif_dma sh_mmcif_dma = {
-	.chan_priv_rx	= {
-		.slave_id	= SHDMA_SLAVE_MMCIF_RX,
-	},
-	.chan_priv_tx	= {
-		.slave_id	= SHDMA_SLAVE_MMCIF_TX,
-	},
-};
-
 static struct sh_mmcif_plat_data sh_mmcif_plat = {
 	.sup_pclk	= 0,
-	.ocr		= MMC_VDD_165_195,
-	.caps		= MMC_CAP_8_BIT_DATA | MMC_CAP_NONREMOVABLE,
-	.dma		= &sh_mmcif_dma,
+	.ocr		= MMC_VDD_165_195 | MMC_VDD_32_33 | MMC_VDD_33_34,
+	.caps		= MMC_CAP_4_BIT_DATA |
+			  MMC_CAP_8_BIT_DATA,
+	.dma_slave_tx	= SHDMA_SLAVE_MMCIF_TX,
+	.dma_slave_rx	= SHDMA_SLAVE_MMCIF_RX,
 };
 
 static struct platform_device sh_mmcif_device = {
@@ -866,8 +859,6 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_MMCD0_6, NULL);
 	gpio_request(GPIO_FN_MMCD0_7, NULL);
 	gpio_request(GPIO_FN_MMCCMD0, NULL);
-	gpio_request(GPIO_PORT208, NULL); /* Reset */
-	gpio_direction_output(GPIO_PORT208, 1);
 
 	/* enable KEYSC */
 	clk_enable(clk_get(NULL, "keysc0"));
@@ -890,7 +881,7 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_KEYOUT8, NULL);
 	gpio_request(GPIO_FN_PORT149_KEYOUT9, NULL);
 
-	/* enable I2C channel 2 and 3 */
+	/* enable IC2 2 and 3 */
 	gpio_request(GPIO_FN_PORT236_I2C_SDA2, NULL);
 	gpio_request(GPIO_FN_PORT237_I2C_SCL2, NULL);
 	gpio_request(GPIO_FN_PORT248_I2C_SCL3, NULL);
