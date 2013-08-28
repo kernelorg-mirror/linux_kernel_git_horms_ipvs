@@ -723,8 +723,6 @@ struct ip_vs_dest_dst {
 	struct rcu_head		rcu_head;
 };
 
-/* In grace period after removing */
-#define IP_VS_DEST_STATE_REMOVING	0x01
 /*
  *	The real server destination forwarding entry
  *	with ip address, port number, and so on.
@@ -742,7 +740,7 @@ struct ip_vs_dest {
 
 	atomic_t		refcnt;		/* reference counter */
 	struct ip_vs_stats      stats;          /* statistics */
-	unsigned long		state;		/* state flags */
+	unsigned long		idle_start;	/* start time, jiffies */
 
 	/* connection counters and thresholds */
 	atomic_t		activeconns;	/* active connections */
@@ -756,7 +754,7 @@ struct ip_vs_dest {
 	struct ip_vs_dest_dst __rcu *dest_dst;	/* cached dst info */
 
 	/* for virtual service */
-	struct ip_vs_service	*svc;		/* service it belongs to */
+	struct ip_vs_service __rcu *svc;	/* service it belongs to */
 	__u16			protocol;	/* which protocol (TCP/UDP) */
 	__be16			vport;		/* virtual port number */
 	union nf_inet_addr	vaddr;		/* virtual IP address */
